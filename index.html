@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mijn Energie Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="alle_data.js"></script>
+  <style>
+    :root { --bg: #0f172a; --card: #1e293b; --text: #f8fafc; --muted: #94a3b8; --accent: #38bdf8; --green: #4ade80; --orange: #fb923c; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 24px; }
+    .header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; }
+    h1 { margin: 0; font-size: 1.6rem; }
+    .btn { background: var(--accent); color: #0f172a; font-weight: 600; padding: 10px 18px; border-radius: 8px; cursor: pointer; border: none; font-size: 0.95rem; }
+    .btn:hover { opacity: 0.9; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .card { background: var(--card); padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2); }
+    .card-title { color: var(--muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+    .card-value { font-size: 1.8rem; font-weight: 700; }
+    .card-sub { color: var(--muted); font-size: 0.85rem; margin-top: 4px; }
+    .charts { display: grid; grid-template-columns: 1fr; gap: 24px; }
+    @media (min-width: 1000px) { .charts { grid-template-columns: 1fr 1fr; } }
+    .chart-box { background: var(--card); padding: 20px; border-radius: 12px; height: 360px; }
+    select { background: var(--card); color: var(--text); border: 1px solid #334155; padding: 8px 12px; border-radius: 8px; font-size: 0.95rem; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>⚡ Energie & Gas Analyse</h1>
+    <div style="color: var(--muted); font-size: 0.9rem;" id="status">Gegevens laden...</div>
+  </div>
+  <div style="display: flex; gap: 12px; align-items: center;">
+    <select id="dagSelectie"></select>
+    <button class="btn" onclick="location.reload()">🔄 Ververs</button>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <div class="card-title">Stroom Verbruik (Geselecteerde dag)</div>
+    <div class="card-value" id="kpiStroom">- kWh</div>
+    <div class="card-sub" id="kpiStroomSplit">Piek: - | Dal: -</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Teruglevering (Zon)</div>
+    <div class="card-value" style="color: var(--green);" id="kpiTerug">- kWh</div>
+    <div class="card-sub" id="kpiNetto">Netto afname: - kWh</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Gasverbruik</div>
+    <div class="card-value" style="color: var(--orange);" id="kpiGas">- m³</div>
+    <div class="card-sub" id="kpiTemp">Gem. buitentemp: - °C</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Totaal Periode (Alle geladen dagen)</div>
+    <div class="card-value" id="kpiPeriodeStroom">- kWh</div>
+    <div class="card-sub" id="kpiPeriodeGas">Gas totaal: - m³</div>
+  </div>
+</div>
+
+<div class="charts">
+  <div class="chart-box">
+    <canvas id="dagGrafiek"></canvas>
+  </div>
+  <div class="chart-box">
+    <canvas id="kwartierGrafiek"></canvas>
+  </div>
+</div>
+
+<script>
+  let alleDagen = {};
+  let dagChart = null;
+  let kwartierChart = null;
+
+  function parseNL(val) {
+    if (!val) return 0;
+    return parseFloat(val.toString().replace(/\./g, '').replace(',', '.')) || 0;
+  }
+
+  function getGasWaarde(u) {
+    return parseNL(u.delivery) + parseNL(u.delivery_low) + parseNL(u.delivery_high);
+  }
+
+  window.addEventListener('DOMContentLoaded', () => {
+    if (!window.ENERGIE_DATA || Object.keys(window.ENERGIE_DATA).length === 0) {
+      document.getElementById('status').textContent = "Geen data gevonden. Controleer of alle_data.js in dezelfde map staat.";
+      return;
+    }
+
+    alleDagen = window.ENERGIE_DATA;
+    const gesorteerdeData = Object.keys(alleDagen).sort();
+
+    document.getElementById('status').textContent = `${gesorteerdeData.length} dagen automatisch geladen (${gesorteerdeData[0]} t/m ${gesorteerdeData[gesorteerdeData.length - 1]})`;
+    
+    const select = document.getElementById('dagSelectie');
+    select.innerHTML = '';
+    gesorteerdeData.slice().reverse().forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d;
+      opt.textContent = `Dagdetail: ${d}`;
+      select.appendChild(opt);
+    });
+    select.onchange = () => updateDashboard(select.value);
+
+    tekenPeriodeGrafiek(gesorteerdeData);
+    updateDashboard(gesorteerdeData[gesorteerdeData.length - 1]);
+  });
+
+  function updateDashboard(datum) {
+    const dagData = alleDagen[datum];
+    let piek = 0, dal = 0, terug = 0, gas = 0, temps = [];
+
+    dagData.elektriciteit.forEach(u => {
+      piek += parseNL(u.delivery_high);
+      dal += parseNL(u.delivery_low);
+      terug += parseNL(u.returned_delivery_high) + parseNL(u.returned_delivery_low);
+      if (u.temperature) temps.push(parseNL(u.temperature));
+    });
+
+    dagData.gas.forEach(u => {
+      gas += getGasWaarde(u);
+    });
+
+    const totaalStroom = piek + dal;
+    const gemTemp = temps.length ? (temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1) : '-';
+
+    document.getElementById('kpiStroom').textContent = `${totaalStroom.toFixed(2)} kWh`;
+    document.getElementById('kpiStroomSplit').textContent = `Piek: ${piek.toFixed(2)} | Dal: ${dal.toFixed(2)} kWh`;
+    document.getElementById('kpiTerug').textContent = `${terug.toFixed(2)} kWh`;
+    document.getElementById('kpiNetto').textContent = `Netto afname: ${(totaalStroom - terug).toFixed(2)} kWh`;
+    document.getElementById('kpiGas').textContent = `${gas.toFixed(2)} m³`;
+    document.getElementById('kpiTemp').textContent = `Gem. buitentemp: ${gemTemp} °C`;
+
+    tekenKwartierGrafiek(datum, dagData.elektriciteit);
+  }
+
+  function tekenPeriodeGrafiek(datums) {
+    let totaalPeriodeStroom = 0, totaalPeriodeGas = 0;
+    const stroomReeks = [], gasReeks = [];
+
+    datums.forEach(d => {
+      const s = alleDagen[d].elektriciteit.reduce((acc, u) => acc + parseNL(u.delivery_high) + parseNL(u.delivery_low), 0);
+      const g = alleDagen[d].gas.reduce((acc, u) => acc + getGasWaarde(u), 0);
+      totaalPeriodeStroom += s;
+      totaalPeriodeGas += g;
+      stroomReeks.push(s.toFixed(2));
+      gasReeks.push(g.toFixed(2));
+    });
+
+    document.getElementById('kpiPeriodeStroom').textContent = `${totaalPeriodeStroom.toFixed(1)} kWh`;
+    document.getElementById('kpiPeriodeGas').textContent = `Gas totaal: ${totaalPeriodeGas.toFixed(1)} m³`;
+
+    if (dagChart) dagChart.destroy();
+    dagChart = new Chart(document.getElementById('dagGrafiek'), {
+      type: 'bar',
+      data: {
+        labels: datums,
+        datasets: [
+          { label: 'Stroom (kWh)', data: stroomReeks, backgroundColor: '#38bdf8' },
+          { label: 'Gas (m³)', data: gasReeks, backgroundColor: '#fb923c' }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { title: { display: true, text: 'Dagverbruik over de gehele periode', color: '#f8fafc' }, legend: { labels: { color: '#f8fafc' } } },
+        scales: { x: { ticks: { color: '#94a3b8' } }, y: { ticks: { color: '#94a3b8' } } }
+      }
+    });
+  }
+
+  function tekenKwartierGrafiek(datum, kwartieren) {
+    const labels = kwartieren.map(u => u.time.split(' ')[1].slice(0, 5));
+    const verbruik = kwartieren.map(u => (parseNL(u.delivery_high) + parseNL(u.delivery_low)).toFixed(3));
+    const terug = kwartieren.map(u => (parseNL(u.returned_delivery_high) + parseNL(u.returned_delivery_low)).toFixed(3));
+
+    if (kwartierChart) kwartierChart.destroy();
+    kwartierChart = new Chart(document.getElementById('kwartierGrafiek'), {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          { label: 'Afname (kWh)', data: verbruik, borderColor: '#38bdf8', backgroundColor: 'rgba(56,189,248,0.1)', fill: true, tension: 0.3 },
+          { label: 'Teruglevering (kWh)', data: terug, borderColor: '#4ade80', backgroundColor: 'rgba(74,222,128,0.1)', fill: true, tension: 0.3 }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { title: { display: true, text: `Kwartierverloop op ${datum}`, color: '#f8fafc' }, legend: { labels: { color: '#f8fafc' } } },
+        scales: { x: { ticks: { color: '#94a3b8', maxTicksLimit: 12 } }, y: { ticks: { color: '#94a3b8' } } }
+      }
+    });
+  }
+</script>
+</body>
+</html>
