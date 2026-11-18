@@ -54,7 +54,6 @@
       padding: 12px 14px 24px;
     }
 
-    /* Top bar */
     .topbar {
       display: flex;
       flex-wrap: wrap;
@@ -93,7 +92,6 @@
       box-shadow: var(--shadow);
     }
 
-    /* Period controls */
     .controls {
       background: var(--card);
       border: 1px solid var(--border);
@@ -169,7 +167,6 @@
       font-size: 0.84rem;
     }
 
-    /* Main grid: 1 screen layout on iPad */
     .main-grid {
       display: grid;
       grid-template-columns: 360px 1fr;
@@ -194,7 +191,6 @@
       box-shadow: var(--shadow);
     }
 
-    /* Big KPI tiles (ENGIE style) */
     .kpi-pair {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -234,7 +230,6 @@
       line-height: 1.3;
     }
 
-    /* Total & Forecast Card */
     .total-banner {
       display: flex;
       align-items: center;
@@ -247,7 +242,6 @@
     .total-euro { font-size: 1.9rem; font-weight: 800; letter-spacing: -0.5px; }
     .total-fixed { font-size: 0.75rem; color: var(--muted); text-align: right; }
 
-    /* Forecast ring */
     .forecast-box {
       display: flex;
       align-items: center;
@@ -283,7 +277,6 @@
     .badge.ok { background: var(--elec-soft); color: var(--elec); }
     .badge.warn { background: var(--gas-soft); color: var(--gas); }
 
-    /* Chart Card */
     .chart-card {
       display: flex;
       flex-direction: column;
@@ -339,7 +332,6 @@
       margin-top: 6px;
     }
 
-    /* Modal for Contract PDF & Tariffs */
     .modal-backdrop {
       position: fixed;
       inset: 0;
@@ -428,7 +420,6 @@
 </head>
 <body>
 <div class="app">
-  <!-- Header -->
   <div class="topbar">
     <div class="brand">
       <h1>⚡ Mijn Energie</h1>
@@ -439,7 +430,6 @@
     </div>
   </div>
 
-  <!-- Period Selector -->
   <div class="controls">
     <div class="seg-group" id="periodTabs">
       <button class="seg-btn active" data-mode="day">Dag</button>
@@ -463,9 +453,7 @@
     </div>
   </div>
 
-  <!-- Main Single-Screen Grid -->
   <div class="main-grid">
-    <!-- Left Column: Costs + Forecast -->
     <div class="left-col">
       <div class="kpi-pair">
         <div class="kpi-tile elec selected" id="tileElec">
@@ -513,7 +501,6 @@
       </div>
     </div>
 
-    <!-- Right Column: Swipeable Bar Chart + Temp Line -->
     <div class="card chart-card" id="swipeArea">
       <div class="chart-header">
         <div class="chart-tabs">
@@ -534,7 +521,6 @@
   </div>
 </div>
 
-<!-- Contract & Tariff Modal -->
 <div class="modal-backdrop" id="contractModal">
   <div class="modal">
     <div class="modal-head">
@@ -606,7 +592,6 @@
 </div>
 
 <script>
-  // Configure PDF.js worker
   if (window.pdfjsLib) {
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   }
@@ -614,7 +599,6 @@
   const RAW_DATA = window.ENERGIE_DATA || {};
   const ALL_DATES = Object.keys(RAW_DATA).sort();
 
-  // Seasonal weights (NL standard profiles: gas heavy in winter, solar heavy in summer)
   const GAS_MONTH_WEIGHTS = [0.165, 0.145, 0.120, 0.075, 0.040, 0.020, 0.015, 0.015, 0.030, 0.075, 0.130, 0.170];
   const ELEC_NET_WEIGHTS  = [0.115, 0.100, 0.085, 0.065, 0.050, 0.045, 0.045, 0.050, 0.065, 0.095, 0.135, 0.150];
 
@@ -635,14 +619,13 @@
   let cfg = Object.assign({}, DEFAULT_CFG, JSON.parse(localStorage.getItem("energie_cfg_v1") || "{}"));
   let state = {
     mode: "day",
-    chartType: "elec", // 'elec' or 'gas'
+    chartType: "elec",
     showTemp: true,
     cursorDate: ALL_DATES.length ? ALL_DATES[ALL_DATES.length - 1] : new Date().toISOString().slice(0,10),
     customStart: ALL_DATES.length ? ALL_DATES[0] : "2026-10-01",
     customEnd: ALL_DATES.length ? ALL_DATES[ALL_DATES.length - 1] : new Date().toISOString().slice(0,10)
   };
 
-  // Theme toggle
   const savedTheme = localStorage.getItem("energie_theme") || "light";
   document.documentElement.setAttribute("data-theme", savedTheme);
   document.getElementById("themeToggleBtn").textContent = savedTheme === "dark" ? "☀️ Licht" : "🌙 Donker";
@@ -654,517 +637,3 @@
     document.getElementById("themeToggleBtn").textContent = nxt === "dark" ? "☀️ Licht" : "🌙 Donker";
     renderAll();
   };
-
-  // Helper: Parse Slimmemeterportal day record
-  function summarizeDay(dateStr) {
-    const dayObj = RAW_DATA[dateStr];
-    if (!dayObj) return null;
-
-    let peakIn = 0, offPeakIn = 0, retTotal = 0;
-    const hourlyElecIn = new Array(24).fill(0);
-    const hourlyElecRet = new Array(24).fill(0);
-
-    (dayObj.elektriciteit || []).forEach(u => {
-      const ts = u.timestamp || u.datetime || u.start || "";
-      const hour = ts.length >= 13 ? parseInt(ts.slice(11, 13), 10) : 12;
-      const d = new Date(dateStr + "T12:00:00");
-      const isWeekend = (d.getDay() === 0 || d.getDay() === 6);
-      const isOffPeak = isWeekend || hour < 7 || hour >= 23;
-
-      // Support common Slimmemeterportal field names
-      const cHigh = Number(u.consumption_high ?? u.delivery_high ?? u.import_high ?? 0);
-      const cLow  = Number(u.consumption_low  ?? u.delivery_low  ?? u.import_low  ?? 0);
-      const cTot  = Number(u.consumption ?? u.delivery ?? u.value ?? 0);
-      const pHigh = Number(u.production_high ?? u.return_high ?? u.export_high ?? 0);
-      const pLow  = Number(u.production_low  ?? u.return_low  ?? u.export_low  ?? 0);
-      const pTot  = Number(u.production ?? u.return ?? 0);
-
-      let imp = (cHigh + cLow) > 0 ? (cHigh + cLow) : Math.max(0, cTot);
-      let exp = (pHigh + pLow) > 0 ? (pHigh + pLow) : Math.max(0, pTot);
-      if (cTot < 0 && exp === 0) { exp = Math.abs(cTot); imp = 0; }
-
-      if ((cHigh + cLow) > 0) {
-        peakIn += cHigh;
-        offPeakIn += cLow;
-      } else {
-        if (isOffPeak) offPeakIn += imp; else peakIn += imp;
-      }
-      retTotal += exp;
-      if (hour >= 0 && hour < 24) {
-        hourlyElecIn[hour] += imp;
-        hourlyElecRet[hour] += exp;
-      }
-    });
-
-    let gasTotal = 0;
-    const hourlyGas = new Array(24).fill(0);
-    (dayObj.gas || []).forEach(u => {
-      const ts = u.timestamp || u.datetime || u.start || "";
-      const hour = ts.length >= 13 ? parseInt(ts.slice(11, 13), 10) : 12;
-      const g = Number(u.consumption ?? u.delivery ?? u.value ?? 0);
-      gasTotal += Math.max(0, g);
-      if (hour >= 0 && hour < 24) hourlyGas[hour] += Math.max(0, g);
-    });
-
-    // Daily netting (saldering op dagbasis)
-    const totalIn = peakIn + offPeakIn;
-    const avgImportRate = cfg.tariffType === "single"
-      ? cfg.elecPeak
-      : (totalIn > 0 ? ((peakIn * cfg.elecPeak + offPeakIn * cfg.elecOffPeak) / totalIn) : cfg.elecPeak);
-
-    const nettedKwh = Math.min(totalIn, retTotal);
-    const netImportKwh = Math.max(0, totalIn - retTotal);
-    const netExportKwh = Math.max(0, retTotal - totalIn);
-
-    const elecCost = (netImportKwh * avgImportRate)
-                   + (retTotal * cfg.feedInCost)
-                   - (netExportKwh * cfg.feedInRate);
-
-    const gasCost = gasTotal * cfg.gasRate;
-    const fixedCost = cfg.fixedSupplyDay + cfg.gridDay + cfg.taxCreditDay;
-
-    const tempObj = dayObj.temp;
-    const avgTemp = tempObj && typeof tempObj.gemiddeld === "number" ? tempObj.gemiddeld : null;
-    const hourlyTemp = new Array(24).fill(null);
-    if (tempObj && tempObj.uren) {
-      for (let h = 0; h < 24; h++) {
-        if (tempObj.uren[String(h)] !== undefined) hourlyTemp[h] = tempObj.uren[String(h)];
-      }
-    }
-
-    return {
-      date: dateStr,
-      totalIn,
-      retTotal,
-      gasTotal,
-      elecCost,
-      gasCost,
-      fixedCost,
-      avgTemp,
-      hourlyElecIn,
-      hourlyElecRet,
-      hourlyGas,
-      hourlyTemp
-    };
-  }
-
-  // Date range utilities
-  function addDays(dateStr, days) {
-    const d = new Date(dateStr + "T12:00:00");
-    d.setDate(d.getDate() + days);
-    return d.toISOString().slice(0, 10);
-  }
-
-  function getPeriodDates() {
-    const cur = state.cursorDate;
-    if (state.mode === "day") {
-      return { start: cur, end: cur, label: new Date(cur + "T12:00:00").toLocaleDateString("nl-NL", { weekday: "short", day: "numeric", month: "short", year: "numeric" }) };
-    }
-    if (state.mode === "week") {
-      const d = new Date(cur + "T12:00:00");
-      const day = d.getDay() || 7;
-      const mon = new Date(d); mon.setDate(d.getDate() - day + 1);
-      const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
-      const s = mon.toISOString().slice(0, 10);
-      const e = sun.toISOString().slice(0, 10);
-      return { start: s, end: e, label: `${mon.toLocaleDateString("nl-NL", {day:"numeric", month:"short"})} – ${sun.toLocaleDateString("nl-NL", {day:"numeric", month:"short"})}` };
-    }
-    if (state.mode === "month") {
-      const ym = cur.slice(0, 7);
-      const [y, m] = ym.split("-").map(Number);
-      const lastDay = new Date(y, m, 0).getDate();
-      const d = new Date(y, m - 1, 1);
-      return {
-        start: `${ym}-01`,
-        end: `${ym}-${String(lastDay).padStart(2, "0")}`,
-        label: d.toLocaleDateString("nl-NL", { month: "long", year: "numeric" })
-      };
-    }
-    if (state.mode === "year") {
-      const y = cur.slice(0, 4);
-      return { start: `${y}-01-01`, end: `${y}-12-31`, label: `Jaar ${y}` };
-    }
-    if (state.mode === "all") {
-      return {
-        start: ALL_DATES[0] || cur,
-        end: ALL_DATES[ALL_DATES.length - 1] || cur,
-        label: "Alle beschikbare data"
-      };
-    }
-    return {
-      start: state.customStart,
-      end: state.customEnd,
-      label: `${state.customStart} t/m ${state.customEnd}`
-    };
-  }
-
-  function stepPeriod(dir) {
-    const cur = state.cursorDate;
-    if (state.mode === "day") state.cursorDate = addDays(cur, dir);
-    else if (state.mode === "week") state.cursorDate = addDays(cur, dir * 7);
-    else if (state.mode === "month") {
-      const [y, m] = cur.slice(0, 7).split("-").map(Number);
-      const d = new Date(y, m - 1 + dir, 15);
-      state.cursorDate = d.toISOString().slice(0, 10);
-    } else if (state.mode === "year") {
-      const y = Number(cur.slice(0, 4)) + dir;
-      state.cursorDate = `${y}-${cur.slice(5)}`;
-    }
-    renderAll();
-  }
-
-  // Seasonal Year Forecast from contractDate
-  function computeYearForecast() {
-    const start = cfg.contractDate;
-    const validDays = ALL_DATES.filter(d => d >= start).map(summarizeDay).filter(Boolean);
-    if (!validDays.length) {
-      return { yearTotal: 0, monthlyAvg: 0 };
-    }
-
-    let sumGasCost = 0, sumGasWeight = 0;
-    let sumElecCost = 0, sumElecWeight = 0;
-
-    validDays.forEach(day => {
-      const mIdx = Number(day.date.slice(5, 7)) - 1;
-      const daysInMonth = new Date(Number(day.date.slice(0, 4)), mIdx + 1, 0).getDate();
-      sumGasCost += day.gasCost;
-      sumGasWeight += (GAS_MONTH_WEIGHTS[mIdx] / daysInMonth);
-      sumElecCost += day.elecCost;
-      sumElecWeight += (ELEC_NET_WEIGHTS[mIdx] / daysInMonth);
-    });
-
-    const estYearGas = sumGasWeight > 0 ? (sumGasCost / sumGasWeight) : 0;
-    const estYearElec = sumElecWeight > 0 ? (sumElecCost / sumElecWeight) : 0;
-    const estYearFixed = (cfg.fixedSupplyDay + cfg.gridDay + cfg.taxCreditDay) * 365;
-    const yearTotal = Math.max(0, estYearGas + estYearElec + estYearFixed);
-    return { yearTotal, monthlyAvg: yearTotal / 12 };
-  }
-
-  function fmtEuro(val) {
-    return val.toLocaleString("nl-NL", { style: "currency", currency: "EUR" });
-  }
-
-  let chartInstance = null;
-
-  function renderAll() {
-    const { start, end, label } = getPeriodDates();
-    document.getElementById("periodLabel").textContent = label;
-    document.getElementById("navArrows").style.display = (state.mode === "all" || state.mode === "custom") ? "none" : "flex";
-    document.getElementById("customRange").classList.toggle("show", state.mode === "custom");
-
-    const matchingDates = ALL_DATES.filter(d => d >= start && d <= end);
-    const days = matchingDates.map(summarizeDay).filter(Boolean);
-
-    let sumIn = 0, sumRet = 0, sumGas = 0;
-    let sumElecEuro = 0, sumGasEuro = 0, sumFixedEuro = 0;
-    let temps = [];
-
-    days.forEach(d => {
-      sumIn += d.totalIn;
-      sumRet += d.retTotal;
-      sumGas += d.gasTotal;
-      sumElecEuro += d.elecCost;
-      sumGasEuro += d.gasCost;
-      sumFixedEuro += d.fixedCost;
-      if (d.avgTemp !== null) temps.push(d.avgTemp);
-    });
-
-    const totalEuro = sumElecEuro + sumGasEuro + sumFixedEuro;
-    const avgTempStr = temps.length ? (temps.reduce((a,b)=>a+b,0) / temps.length).toFixed(1) + " °C" : "- °C";
-
-    document.getElementById("elecEuro").textContent = fmtEuro(sumElecEuro);
-    document.getElementById("elecSub").innerHTML = `Afname: ${sumIn.toFixed(1)} kWh<br>Terug: ${sumRet.toFixed(1)} kWh`;
-
-    document.getElementById("gasEuro").textContent = fmtEuro(sumGasEuro);
-    document.getElementById("gasSub").innerHTML = `Verbruik: ${sumGas.toFixed(2)} m³<br>Gem. temp: ${avgTempStr}`;
-
-    document.getElementById("totalEuro").textContent = fmtEuro(totalEuro);
-    document.getElementById("fixedBreakdown").innerHTML = `Vaste kosten: ${fmtEuro(sumFixedEuro)}<br>(${days.length} ${days.length === 1 ? "dag" : "dagen"})`;
-
-    // Forecast & Ring
-    const fc = computeYearForecast();
-    document.getElementById("contractStartLbl").textContent = cfg.contractDate.split("-").reverse().slice(0,2).join("-");
-    document.getElementById("yearForecastEuro").textContent = fmtEuro(fc.yearTotal);
-    document.getElementById("termijnLbl").textContent = `${fmtEuro(cfg.termijn)}/mnd`;
-    document.getElementById("ringEuro").textContent = `€ ${Math.round(fc.monthlyAvg)}`;
-
-    const ratio = cfg.termijn > 0 ? Math.min(1.3, fc.monthlyAvg / cfg.termijn) : 0;
-    const circ = 251.3;
-    document.getElementById("ringProgress").style.strokeDashoffset = circ * (1 - Math.min(1, ratio));
-    const badge = document.getElementById("forecastBadge");
-    if (fc.monthlyAvg <= cfg.termijn) {
-      badge.className = "badge ok";
-      badge.textContent = `Je krijgt naar verwachting ${fmtEuro((cfg.termijn - fc.monthlyAvg) * 12)} terug`;
-    } else {
-      badge.className = "badge warn";
-      badge.textContent = `Verwacht ${fmtEuro((fc.monthlyAvg - cfg.termijn) * 12)} bijbetalen`;
-    }
-
-    // Tile & tab selection UI
-    document.getElementById("tileElec").classList.toggle("selected", state.chartType === "elec");
-    document.getElementById("tileGas").classList.toggle("selected", state.chartType === "gas");
-    document.getElementById("btnShowElec").className = "tab-pill" + (state.chartType === "elec" ? " active-elec" : "");
-    document.getElementById("btnShowGas").className = "tab-pill" + (state.chartType === "gas" ? " active-gas" : "");
-
-    renderChart(days);
-  }
-
-  function renderChart(days) {
-    const isDark = document.documentElement.getAttribute("data-theme") === "dark";
-    const gridColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)";
-    const textColor = isDark ? "#cbd5e1" : "#475569";
-
-    let labels = [];
-    let barPos = [];
-    let barNeg = [];
-    let tempSeries = [];
-
-    if (state.mode === "day" && days.length === 1) {
-      const d = days[0];
-      for (let h = 0; h < 24; h++) {
-        labels.push(`${String(h).padStart(2, "0")}:00`);
-        if (state.chartType === "elec") {
-          barPos.push(Number(d.hourlyElecIn[h].toFixed(3)));
-          barNeg.push(Number((-d.hourlyElecRet[h]).toFixed(3)));
-        } else {
-          barPos.push(Number(d.hourlyGas[h].toFixed(3)));
-        }
-        tempSeries.push(d.hourlyTemp[h]);
-      }
-    } else if (state.mode === "year" || state.mode === "all") {
-      // Group by month YYYY-MM
-      const byMonth = {};
-      days.forEach(d => {
-        const ym = d.date.slice(0, 7);
-        byMonth[ym] = byMonth[ym] || { in: 0, ret: 0, gas: 0, temps: [] };
-        byMonth[ym].in += d.totalIn;
-        byMonth[ym].ret += d.retTotal;
-        byMonth[ym].gas += d.gasTotal;
-        if (d.avgTemp !== null) byMonth[ym].temps.push(d.avgTemp);
-      });
-      Object.keys(byMonth).sort().forEach(ym => {
-        const [y, m] = ym.split("-");
-        labels.push(new Date(Number(y), Number(m)-1, 1).toLocaleDateString("nl-NL", { month: "short", year: "2-digit" }));
-        barPos.push(Number((state.chartType === "elec" ? byMonth[ym].in : byMonth[ym].gas).toFixed(1)));
-        barNeg.push(Number((-byMonth[ym].ret).toFixed(1)));
-        const t = byMonth[ym].temps;
-        tempSeries.push(t.length ? Number((t.reduce((a,b)=>a+b,0)/t.length).toFixed(1)) : null);
-      });
-    } else {
-      // Day-by-day bars (week, month, custom)
-      days.forEach(d => {
-        labels.push(new Date(d.date + "T12:00:00").toLocaleDateString("nl-NL", { day: "numeric", month: "short" }));
-        barPos.push(Number((state.chartType === "elec" ? d.totalIn : d.gasTotal).toFixed(2)));
-        barNeg.push(Number((-d.retTotal).toFixed(2)));
-        tempSeries.push(d.avgTemp);
-      });
-    }
-
-    const datasets = [];
-    if (state.chartType === "elec") {
-      datasets.push({
-        type: "bar",
-        label: "Afname (kWh)",
-        data: barPos,
-        backgroundColor: "#16a34a",
-        borderRadius: 5,
-        yAxisID: "y",
-        order: 2
-      });
-      datasets.push({
-        type: "bar",
-        label: "Teruglevering (kWh)",
-        data: barNeg,
-        backgroundColor: "#0284c7",
-        borderRadius: 5,
-        yAxisID: "y",
-        order: 2
-      });
-    } else {
-      datasets.push({
-        type: "bar",
-        label: "Gasverbruik (m³)",
-        data: barPos,
-        backgroundColor: "#ea580c",
-        borderRadius: 5,
-        yAxisID: "y",
-        order: 2
-      });
-    }
-
-    if (state.showTemp) {
-      datasets.push({
-        type: "line",
-        label: "Temperatuur (°C)",
-        data: tempSeries,
-        borderColor: "#eab308",
-        backgroundColor: "#eab308",
-        borderWidth: 2.5,
-        pointRadius: 2.5,
-        tension: 0.35,
-        yAxisID: "yTemp",
-        order: 1
-      });
-    }
-
-    if (chartInstance) chartInstance.destroy();
-    const ctx = document.getElementById("energyChart").getContext("2d");
-    chartInstance = new Chart(ctx, {
-      data: { labels, datasets },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: "index", intersect: false },
-        plugins: {
-          legend: { labels: { color: textColor, boxWidth: 12, font: { weight: "600" } } }
-        },
-        scales: {
-          x: {
-            stacked: true,
-            grid: { display: false },
-            ticks: { color: textColor, maxRotation: 0 }
-          },
-          y: {
-            stacked: true,
-            grid: { color: gridColor },
-            ticks: { color: textColor },
-            title: {
-              display: true,
-              text: state.chartType === "elec" ? "kWh" : "m³",
-              color: textColor
-            }
-          },
-          yTemp: {
-            display: state.showTemp,
-            position: "right",
-            grid: { drawOnChartArea: false },
-            ticks: { color: "#eab308", callback: v => v + "°" }
-          }
-        }
-      }
-    });
-  }
-
-  // Event bindings
-  document.querySelectorAll("#periodTabs .seg-btn").forEach(btn => {
-    btn.onclick = () => {
-      document.querySelectorAll("#periodTabs .seg-btn").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      state.mode = btn.dataset.mode;
-      renderAll();
-    };
-  });
-
-  document.getElementById("prevPeriod").onclick = () => stepPeriod(-1);
-  document.getElementById("nextPeriod").onclick = () => stepPeriod(1);
-
-  document.getElementById("startDateInput").value = state.customStart;
-  document.getElementById("endDateInput").value = state.customEnd;
-  document.getElementById("startDateInput").onchange = e => { state.customStart = e.target.value; renderAll(); };
-  document.getElementById("endDateInput").onchange = e => { state.customEnd = e.target.value; renderAll(); };
-
-  document.getElementById("tileElec").onclick = () => { state.chartType = "elec"; renderAll(); };
-  document.getElementById("tileGas").onclick = () => { state.chartType = "gas"; renderAll(); };
-  document.getElementById("btnShowElec").onclick = () => { state.chartType = "elec"; renderAll(); };
-  document.getElementById("btnShowGas").onclick = () => { state.chartType = "gas"; renderAll(); };
-  document.getElementById("toggleTemp").onchange = e => { state.showTemp = e.target.checked; renderAll(); };
-
-  // Touch Swipe support on chart area
-  let touchStartX = 0;
-  const swipeArea = document.getElementById("swipeArea");
-  swipeArea.addEventListener("touchstart", e => { touchStartX = e.changedTouches[0].screenX; }, { passive: true });
-  swipeArea.addEventListener("touchend", e => {
-    const dx = e.changedTouches[0].screenX - touchStartX;
-    if (Math.abs(dx) > 55) {
-      stepPeriod(dx < 0 ? 1 : -1);
-    }
-  }, { passive: true });
-
-  // Contract Modal & Local PDF Parser
-  function populateConfigForm() {
-    document.getElementById("cfgContractDate").value = cfg.contractDate;
-    document.getElementById("cfgTermijn").value = cfg.termijn;
-    document.getElementById("cfgTariffType").value = cfg.tariffType;
-    document.getElementById("cfgElecPeak").value = cfg.elecPeak;
-    document.getElementById("cfgElecOffPeak").value = cfg.elecOffPeak;
-    document.getElementById("cfgFeedInRate").value = cfg.feedInRate;
-    document.getElementById("cfgFeedInCost").value = cfg.feedInCost;
-    document.getElementById("cfgGasRate").value = cfg.gasRate;
-    document.getElementById("cfgFixedSupplyDay").value = cfg.fixedSupplyDay;
-    document.getElementById("cfgGridDay").value = cfg.gridDay;
-    document.getElementById("cfgTaxCreditDay").value = cfg.taxCreditDay;
-  }
-
-  document.getElementById("openContractBtn").onclick = () => {
-    populateConfigForm();
-    document.getElementById("contractModal").classList.add("open");
-  };
-  document.getElementById("closeContractBtn").onclick = () => {
-    document.getElementById("contractModal").classList.remove("open");
-  };
-  document.getElementById("saveContractBtn").onclick = () => {
-    cfg.contractDate = document.getElementById("cfgContractDate").value || cfg.contractDate;
-    cfg.termijn = parseFloat(document.getElementById("cfgTermijn").value) || 0;
-    cfg.tariffType = document.getElementById("cfgTariffType").value;
-    cfg.elecPeak = parseFloat(document.getElementById("cfgElecPeak").value) || 0;
-    cfg.elecOffPeak = parseFloat(document.getElementById("cfgElecOffPeak").value) || 0;
-    cfg.feedInRate = parseFloat(document.getElementById("cfgFeedInRate").value) || 0;
-    cfg.feedInCost = parseFloat(document.getElementById("cfgFeedInCost").value) || 0;
-    cfg.gasRate = parseFloat(document.getElementById("cfgGasRate").value) || 0;
-    cfg.fixedSupplyDay = parseFloat(document.getElementById("cfgFixedSupplyDay").value) || 0;
-    cfg.gridDay = parseFloat(document.getElementById("cfgGridDay").value) || 0;
-    cfg.taxCreditDay = parseFloat(document.getElementById("cfgTaxCreditDay").value) || 0;
-    localStorage.setItem("energie_cfg_v1", JSON.stringify(cfg));
-    document.getElementById("contractModal").classList.remove("open");
-    renderAll();
-  };
-
-  document.getElementById("pdfDropZone").onclick = () => document.getElementById("pdfFileInput").click();
-  document.getElementById("pdfFileInput").onchange = async (e) => {
-    const file = e.target.files[0];
-    if (!file || !window.pdfjsLib) return;
-    const statusEl = document.getElementById("pdfStatus");
-    statusEl.textContent = "PDF wordt uitgelezen...";
-
-    try {
-      const buf = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-      let fullText = "";
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        fullText += content.items.map(it => it.str).join(" ") + "\n";
-      }
-
-      const findEuro = (regex) => {
-        const m = fullText.match(regex);
-        return m ? parseFloat(m[1].replace(",", ".")) : null;
-      };
-
-      const peak = findEuro(/(?:normaal|piek|levering stroom|enkel)[^\d€]{0,40}€?\s*(0,\d{2,5})/i);
-      const offPeak = findEuro(/(?:dal)[^\d€]{0,40}€?\s*(0,\d{2,5})/i);
-      const gas = findEuro(/(?:gas|levering gas)[^\d€]{0,40}€?\s*(1,\d{2,5}|0,\d{2,5})/i);
-      const feedIn = findEuro(/(?:terugleververgoeding)[^\d€]{0,40}€?\s*(0,\d{2,5})/i);
-      const feedCost = findEuro(/(?:terugleverkosten)[^\d€]{0,40}€?\s*(0,\d{2,5})/i);
-      const term = findEuro(/(?:termijnbedrag)[^\d€]{0,40}€?\s*(\d{2,3}[,\.]\d{2})/i);
-
-      if (peak !== null) document.getElementById("cfgElecPeak").value = peak;
-      if (offPeak !== null) {
-        document.getElementById("cfgElecOffPeak").value = offPeak;
-        document.getElementById("cfgTariffType").value = "double";
-      }
-      if (gas !== null) document.getElementById("cfgGasRate").value = gas;
-      if (feedIn !== null) document.getElementById("cfgFeedInRate").value = feedIn;
-      if (feedCost !== null) document.getElementById("cfgFeedInCost").value = feedCost;
-      if (term !== null) document.getElementById("cfgTermijn").value = term;
-
-      statusEl.textContent = "✔ Gegevens overgenomen uit PDF. Controleer hieronder de bedragen en klik op Opslaan.";
-    } catch (err) {
-      statusEl.textContent = "Kon PDF niet automatisch uitlezen; vul de tarieven hieronder handmatig in.";
-    }
-  };
-
-  renderAll();
-</script>
-</body>
-</html>
