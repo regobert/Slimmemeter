@@ -793,6 +793,8 @@
     const old = LS.get("energie_cfg_v1", null); // instellingen uit de eerste versie overnemen
     contracts = [newContract(Object.assign({ naam: "Huidig contract" }, old || {}, old && old.contractDate ? { start: old.contractDate } : {}))];
   }
+  // dubbele id's (bug in eerdere versie bij PDF-upload) herstellen
+  (function () { const seen = new Set(); contracts.forEach((c, i) => { if (!c.id || seen.has(c.id)) c.id = "c" + Date.now().toString(36) + i; seen.add(c.id); }); })();
   let termijnen = LS.get("energie_termijnen_v1", {});
   let hist = LS.get("energie_hist_v1", {});
   let histTemp = LS.get("energie_histtemp_v1", {});
@@ -1458,13 +1460,17 @@
         });
         text += "\n";
       }
-      const found = parseContract(text);
+      const { out: found, notes } = parseContract(text);
       readForm();
-      const c = newContract(Object.assign({}, selContract(), { naam: file.name.replace(/\.pdf$/i, ""), start: todayKey(), end: "", maandTarieven: {} }, found));
+      const dyn = found.dynamisch; delete found.dynamisch;
+      const c = newContract(Object.assign({}, selContract(), { naam: file.name.replace(/\.pdf$/i, ""), start: todayKey(), end: "", maandTarieven: {}, saldering: "auto" }, found));
+      c.id = "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); // altijd een nieuw id
+      if (found.naam && found.start) c.naam = found.naam + " " + found.start.slice(0, 4);
       draft.push(c); selId = c.id;
       fillForm();
       const n = Object.keys(found).length;
-      status.textContent = "Nieuw contract toegevoegd: " + n + " waarde(n) herkend — controleer start-/einddatum en tarieven en klik op Opslaan.";
+      status.textContent = "Nieuw contract toegevoegd: " + n + " waarde(n) herkend" + (notes.length ? " (let op: " + notes.join("; ") + ")" : "") + " — controleer de velden en klik op Opslaan.";
+      if (dyn) document.getElementById("newTariffMonth").value = (found.start || todayKey()).slice(0, 7);
     } catch (err) {
       status.textContent = "Fout bij uitlezen PDF: " + err.message;
     } finally { pdfInput.value = ""; }
@@ -1478,48 +1484,97 @@
     return null;
   }
 
+  // Herkent tarieven uit contract-PDF's (o.a. Greenchoice, Budget Thuis, Mijndomein/EnergyZero en algemene formaten).
+  // Geeft { out: {velden}, notes: [meldingen] }.
+  const SUPPLIERS = ["Greenchoice", "Budget Thuis", "Mijndomein Energie", "EnergyZero", "Vattenfall", "Eneco", "Essent", "Energiedirect", "Vandebron", "Tibber", "Frank Energie", "Zonneplan", "ANWB Energie", "Pure Energie", "Oxxio", "Innova", "Delta", "Engie", "United Consumers", "Energie van Hengelo", "NLE", "Qurrent", "Coolblue Energie", "Easyenergy"];
   function parseContract(text) {
     const lines = text.split(/\n/).map(l => l.replace(/\s+/g, " ").trim()).filter(Boolean);
-    const out = {};
-    const amountRe = /(-?\s?€?\s?-?\d{1,4}[.,]\d{2,6})/g;
-    const amounts = l => (l.match(amountRe) || []).map(a => num(a.replace(/[€\s]/g, "").replace(/^(-?\d+)\.(\d+)$/, "$1,$2"))).filter(v => v !== null);
-    const perDay = (l, v) => /jaar/i.test(l) ? v / 365 : /maand|mnd/i.test(l) ? v * 12 / 365 : v;
+    const out = {}, notes = [];
+    const amountRe = /-?\s?€?\s?-?\d{1,4}[.,]\d{2,6}/g;
+    const amounts = l => (l.match(amountRe) || []).map(a => num(a.replace(/[€\s]/g, "").replace(/^(-?\d+)\.(\d+)$/, "$1,$2"))).filter(v => v !== null && Math.abs(v) < 1000);
+    const lineAmounts = i => amounts(lines[i]).length ? amounts(lines[i]) : amounts(lines[i + 1] || "");
     const find = (re, not) => {
       for (let i = 0; i < lines.length; i++) {
-        if (re.test(lines[i]) && !(not && not.test(lines[i]))) {
-          const a = amounts(lines[i]).length ? amounts(lines[i]) : amounts(lines[i + 1] || "");
-          if (a.length) return { v: a[a.length - 1], l: lines[i] + " " + (lines[i + 1] || "") };
-        }
+        if (re.test(lines[i]) && !(not && not.test(lines[i]))) { const a = lineAmounts(i); if (a.length) return { a, l: lines[i] }; }
       }
       return null;
     };
-    const findDate = re => {
-      for (let i = 0; i < lines.length; i++) if (re.test(lines[i])) { const d = parseDutchDate(lines[i] + " " + (lines[i + 1] || "")); if (d) return d; }
+    const last = r => r.a[r.a.length - 1];
+    // bedrag -> per dag (expliciet per jaar/maand/dag, anders: > 2 euro is vrijwel zeker een maandbedrag)
+    const perDay = (l, v) => /per jaar|\/ ?jaar|jaarlijks/i.test(l) ? v / 365 : /per maand|\/ ?maand|per mnd/i.test(l) ? v * 12 / 365 : /per dag|\/ ?dag/i.test(l) ? v : (Math.abs(v) > 100 ? v / 365 : Math.abs(v) > 2 ? v * 12 / 365 : v);
+    const r4 = v => +(+v).toFixed(5);
+
+    // leverancier
+    const sup = SUPPLIERS.find(s => new RegExp(s.replace(/ /g, "\\s*"), "i").test(text));
+    if (sup) out.naam = sup;
+
+    // looptijd
+    const findDate = (re, not) => {
+      for (let i = 0; i < lines.length; i++) {
+        if (re.test(lines[i]) && !(not && not.test(lines[i]))) { const d = parseDutchDate(lines[i]) || parseDutchDate(lines[i + 1] || ""); if (d) return d; }
+      }
       return null;
     };
-    let r, d;
-    if ((d = findDate(/ingangsdatum|startdatum|begindatum|leveringsdatum|levering start|ingang/i))) out.start = d;
-    if ((d = findDate(/einddatum|looptijd tot|loopt tot|geldig tot|eindigt/i))) out.end = d;
-    const lev = /(leverancier|energie)\s*:?\s*([A-Z][\w &|-]{2,40})/.exec(text);
-    if (lev && !out.naam) out.naam = lev[2].trim();
-    if ((r = find(/(normaal|piek|hoog)[^\n]*kwh|kwh[^\n]*(normaal|piek)/i, /terug/i))) out.elecPeak = +r.v.toFixed(5);
-    if ((r = find(/(dal|laag)[^\n]*kwh|kwh[^\n]*dal/i, /terug/i))) out.elecOffPeak = +r.v.toFixed(5);
-    if (!out.elecPeak && (r = find(/enkel[^\n]*kwh|kwh[^\n]*enkel|leveringstarief stroom|stroom[^\n]*per kwh/i, /terug/i))) { out.elecPeak = +r.v.toFixed(5); out.tariffType = "single"; }
-    else if (out.elecPeak && !out.elecOffPeak) out.tariffType = "single";
-    else if (out.elecPeak && out.elecOffPeak) out.tariffType = "double";
-    if ((r = find(/terugleververgoeding|vergoeding[^\n]*teruglever/i))) out.feedInRate = +Math.abs(r.v).toFixed(5);
-    if ((r = find(/terugleverkosten|kosten[^\n]*teruglever/i))) out.feedInCost = +Math.abs(r.v).toFixed(5);
-    if ((r = find(/gas[^\n]*m(3|³)|m(3|³)[^\n]*gas|leveringstarief gas/i, /vast|netbeheer/i))) out.gasRate = +r.v.toFixed(5);
-    if ((r = find(/termijnbedrag|voorschotbedrag|maandbedrag/i))) out.termijn = +Math.abs(r.v).toFixed(2);
-    const sumPerDay = re => {
+    let d;
+    if ((d = findDate(/start(datum)?\s*(levering\s*)?stroom|start levering|levering start|startdatum|ingangsdatum|begindatum/i, /geboorte|afgesloten/i))) out.start = d;
+    if ((d = findDate(/einddatum\s*stroom|einddatum|loopt tot|geldig tot/i, /geboorte/i))) out.end = addDays(d, -1); // einddatum = eerste dag van het volgende contract
+
+    // stroom: Greenchoice-stijl "Variabele leveringskosten (normaal) € 0,46"
+    let r;
+    if ((r = find(/leveringskosten\s*\(normaal\)|totaal.*\(normaal\)/i))) out.elecPeak = r4(last(r));
+    if ((r = find(/leveringskosten\s*\(dal\)|totaal.*\(dal\)/i))) out.elecOffPeak = r4(last(r));
+    if (!out.elecPeak && (r = find(/leveringskosten\s*\(enkel\)/i))) out.elecPeak = r4(last(r));
+    // tabelregel met EAN (Budget Thuis e.a.): stroomregel heeft >= 5 bedragen, gasregel 2-4
+    lines.forEach((l, i) => {
+      if (!/\b\d{18}\b/.test(l)) return;
+      const a = amounts(l);
+      if (a.length >= 5 && !out.elecPeak) { out.elecPeak = r4(a[a.length - 2]); out.elecOffPeak = r4(a[a.length - 1]); if (a.length >= 7 && out.feedInRate === undefined) out.feedInRate = r4(a[2]); }
+      else if (a.length >= 2 && a.length <= 4 && !out.gasRate) out.gasRate = r4(a[a.length - 1]);
+    });
+    // algemene regels met kWh
+    if (!out.elecPeak && (r = find(/(normaal|piek|hoog)[^\n]*kwh|kwh[^\n]*(normaal|piek)/i, /terug|belasting|schijf/i))) out.elecPeak = r4(last(r));
+    if (!out.elecOffPeak && (r = find(/(dal|laag)[^\n]*kwh|kwh[^\n]*dal/i, /terug|belasting|schijf/i))) out.elecOffPeak = r4(last(r));
+    if (out.elecPeak) out.tariffType = out.elecOffPeak ? "double" : "single";
+
+    // teruglevering
+    if (out.feedInRate === undefined && (r = find(/terugleververgoeding/i, /vanaf 1 januari 2027|2027/i))) out.feedInRate = r4(Math.abs(last(r)));
+    // terugleverkosten per kWh; tarieven die pas vanaf 2027 gelden overslaan
+    const tlk = lines.findIndex((l, i) => /terugleverkosten/i.test(l) && !/verandert|berekenen/i.test(l) && lineAmounts(i).length && !lines.slice(Math.max(0, i - 4), i + 1).some(x => /2027/.test(x)));
+    out.feedInCost = tlk >= 0 ? r4(Math.abs(lineAmounts(tlk).slice(-1)[0])) : 0; // niet in contract = geen terugleverkosten
+    if (tlk < 0 && /terugleverkosten[\s\S]{0,400}schaal/i.test(text)) notes.push("terugleverkosten volgens schaal (vast bedrag per dag) — tel dat bedrag op bij de vaste leveringskosten");
+
+    // gas
+    if (!out.gasRate && (r = find(/leveringskosten\s*\(gas\)|totaal leveringstarief\s*\(gas\)|leveringstarief gas.*incl/i))) out.gasRate = r4(last(r));
+    if (!out.gasRate && (r = find(/gas[^\n]*(m3|m³)|(m3|m³)[^\n]*gas/i, /belasting|netbeheer|vast|schijf|ode|regiotoeslag|inkoop|leba/i))) out.gasRate = r4(last(r));
+
+    // vaste kosten (som van stroom + gas)
+    const sumPerDay = (re, not) => {
       let tot = 0, n = 0;
-      lines.forEach((l, i) => { if (re.test(l)) { const a = amounts(l).length ? amounts(l) : amounts(lines[i + 1] || ""); if (a.length) { tot += perDay(l, a[a.length - 1]); n++; } } });
+      lines.forEach((l, i) => {
+        if (!re.test(l) || (not && not.test(l))) return;
+        const a = lineAmounts(i); if (!a.length) return;
+        const v = (/elektriciteit|stroom/i.test(l) && /gas/i.test(l) && a.length > 1) ? a.reduce((x, y) => x + y, 0) : a[a.length - 1];
+        tot += perDay(l, v); n++;
+      });
       return n ? +tot.toFixed(4) : null;
     };
-    const fx = sumPerDay(/vaste leveringskosten|vastrecht levering|vaste kosten levering/i); if (fx !== null) out.fixedSupplyDay = fx;
-    const gr = sumPerDay(/netbeheer|transportkosten|aansluitkosten/i); if (gr !== null) out.gridDay = gr;
-    if ((r = find(/vermindering energiebelasting|heffingskorting/i))) out.taxCreditDay = -Math.abs(+perDay(r.l, r.v).toFixed(4));
-    return out;
+    const fx = sumPerDay(/vaste leveringskosten|leveringskosten van\s*€|vast bedrag aan|vastrecht|voor (elektriciteit|gas) per maand/i, /netbeheer|staan los|dekking|berekenen|aanpassen/i);
+    if (fx !== null) out.fixedSupplyDay = fx;
+    const gr = sumPerDay(/netbeheerkosten|transportkosten|aansluitkosten/i, /gelden voor|kunnen wijzigen|administratie/i);
+    if (gr !== null) out.gridDay = gr; else notes.push("netbeheerkosten niet gevonden");
+    if ((r = find(/vermindering (op de )?energiebelasting|heffingskorting|belastingvermindering/i))) out.taxCreditDay = -Math.abs(+perDay(r.l, last(r)).toFixed(4));
+    else notes.push("vermindering energiebelasting niet gevonden");
+
+    // termijnbedrag
+    if ((r = find(/termijnbedrag|voorschot|maandbedrag/i))) { const t = r.a.find(v => v >= 10); if (t) out.termijn = +t.toFixed(2); }
+
+    // dynamisch / variabel
+    if (/uurprijs|epex|dynamisch|per uur verandert|varieert per dag/i.test(text)) {
+      out.dynamisch = true;
+      notes.push("dynamisch contract: vul per maand de tarieven in (Maandtarieven of E-mail plakken)");
+    }
+    if (!out.start) notes.push("startdatum niet gevonden");
+    return { out, notes };
   }
 
   /* ================= E-mail van leverancier plakken ================= */
