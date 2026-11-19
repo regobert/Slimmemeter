@@ -1,0 +1,28 @@
+name: Remeha test
+
+# Handmatige test van de Remeha-koppeling. Logt alleen welke gegevens er zijn
+# (velden, aantal dagen, periode) — geen verbruikscijfers — en slaat niets op.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests
+
+      - name: Remeha Home testen
+        env:
+          REMEHA_EMAIL: ${{ secrets.REMEHA_EMAIL }}
+          REMEHA_PASSWORD: ${{ secrets.REMEHA_PASSWORD }}
+        run: python scripts/remeha.py --test
