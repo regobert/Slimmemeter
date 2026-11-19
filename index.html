@@ -434,6 +434,16 @@
     .chart-note { text-align: center; font-size: 0.8rem; color: var(--muted); margin-top: 4px; display: none; }
     .chart-note.show { display: block; }
     .est-flag { font-size: 0.7rem; color: var(--muted); font-weight: 600; }
+    .modal.wide { max-width: 1000px; }
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .mini-table td.num, .mini-table th.num { text-align: right; white-space: nowrap; }
+    .mini-table tr.muted td { color: var(--muted); }
+    .ins-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin: 8px 0 12px; }
+    .ins-card { background: var(--bg); border-radius: 12px; padding: 10px 12px; }
+    .ins-card .lbl { font-size: 0.74rem; color: var(--muted); font-weight: 600; }
+    .ins-card .val { font-size: 1.25rem; font-weight: 800; margin-top: 2px; }
+    .ins-card .sub { font-size: 0.74rem; color: var(--muted); margin-top: 2px; }
+    .ins-chart { position: relative; height: 240px; margin: 6px 0 4px; }
   </style>
 </head>
 <body>
@@ -443,6 +453,7 @@
       <h1>⚡ Mijn Energie</h1>
     </div>
     <div class="top-actions">
+      <button class="icon-btn" id="openInsightsBtn">📊 Inzichten</button>
       <button class="icon-btn" id="openContractBtn">📄 Contracten & gegevens</button>
       <button class="icon-btn" id="themeToggleBtn">🌙 Donker</button>
     </div>
@@ -686,6 +697,48 @@
 
     <div class="modal-actions">
       <button class="btn-primary" id="saveContractBtn">Opslaan & Berekenen</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="insightsModal">
+  <div class="modal wide">
+    <div class="modal-head">
+      <h2>📊 Inzichten</h2>
+      <button class="icon-btn" id="closeInsightsBtn">✕ Sluiten</button>
+    </div>
+
+    <div class="section-title" style="margin-top:0;">Jaaroverzicht</div>
+    <div class="hint">Kosten zijn berekend met de contracten die je hebt ingevoerd; "≈" = geschat (maandtotalen of geen contract voor die periode).</div>
+    <div class="table-scroll">
+      <table class="mini-table" id="yearTable">
+        <thead><tr><th>Jaar</th><th class="num">Afname kWh</th><th class="num">Terug kWh</th><th class="num">Netto kWh</th><th class="num">Gas m³</th><th class="num">Graaddagen</th><th class="num">Kosten</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="section-title">Stookseizoenen & warmtepomp</div>
+    <div class="hint">Stookseizoen = oktober t/m april. Graaddagen (basis 18 °C) maken koude en zachte winters vergelijkbaar: verbruik per 1.000 graaddagen.</div>
+    <div class="row-actions">
+      <label for="wpStartInput" style="font-size:0.84rem; font-weight:600;">Warmtepomp sinds</label>
+      <input type="month" id="wpStartInput" style="padding:6px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text);" />
+    </div>
+    <div class="ins-summary" id="wpSummary"></div>
+    <div class="ins-chart"><canvas id="seasonChart"></canvas></div>
+    <div class="table-scroll">
+      <table class="mini-table" id="seasonTable">
+        <thead><tr><th>Seizoen</th><th class="num">Gas m³</th><th class="num">Afname kWh</th><th class="num">Graaddagen</th><th class="num">Gas / 1.000 GD</th><th class="num">Stroom / 1.000 GD</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="section-title">Afwijkingen</div>
+    <div class="hint">Volledige maanden die sterk afwijken van dezelfde maand in andere jaren (voor en na de warmtepomp apart vergeleken). Kan een meetfout zijn, maar ook vakantie, sneeuw op de panelen of een koude maand.</div>
+    <div class="table-scroll">
+      <table class="mini-table" id="anomalyTable">
+        <thead><tr><th>Maand</th><th>Wat</th><th class="num">Gemeten</th><th class="num">Normaal</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
     </div>
   </div>
 </div>
@@ -1554,7 +1607,7 @@
   }
   document.getElementById("clearHistBtn").onclick = () => {
     if (!confirm("Alle geüploade historie wissen?")) return;
-    hist = {}; histTemp = {}; LS.set("energie_hist_v1", hist); LS.set("energie_histtemp_v1", histTemp);
+    hist = {}; histTemp = {}; degreeDays = {}; LS.set("energie_hist_v1", hist); LS.set("energie_histtemp_v1", histTemp); LS.set("energie_gd_v1", degreeDays);
     afterHistChange();
   };
   function afterHistChange() {
@@ -1563,9 +1616,10 @@
     syncRangeInputs(); renderHistTable(); renderAll(); fetchHistTemps();
   }
 
-  // Maandgemiddelde buitentemperatuur Hengelo voor historische maanden (Open-Meteo archief, alleen coördinaten worden verstuurd)
+  // Maandgemiddelde buitentemperatuur en graaddagen Hengelo voor historische maanden
+  // (Open-Meteo archief; alleen de coördinaten van Hengelo worden verstuurd)
   async function fetchHistTemps() {
-    const need = histMonths().filter(m => histTemp[m] === undefined && monthEnd(m) < todayKey());
+    const need = histMonths().filter(m => (histTemp[m] === undefined || degreeDays[m] === undefined) && monthEnd(m) < todayKey());
     if (!need.length) return;
     try {
       const url = "https://archive-api.open-meteo.com/v1/archive?latitude=" + HENGELO.lat + "&longitude=" + HENGELO.lon +
@@ -1574,18 +1628,23 @@
       const acc = {};
       (js.daily && js.daily.time || []).forEach((d, i) => {
         const v = js.daily.temperature_2m_mean[i]; if (v === null) return;
-        const m = d.slice(0, 7); acc[m] = acc[m] || [0, 0]; acc[m][0] += v; acc[m][1]++;
+        const m = d.slice(0, 7); acc[m] = acc[m] || [0, 0, 0]; acc[m][0] += v; acc[m][1]++; acc[m][2] += Math.max(0, 18 - v);
       });
-      need.forEach(m => { if (acc[m]) histTemp[m] = +(acc[m][0] / acc[m][1]).toFixed(1); });
-      LS.set("energie_histtemp_v1", histTemp);
+      need.forEach(m => {
+        if (!acc[m]) return;
+        histTemp[m] = +(acc[m][0] / acc[m][1]).toFixed(1);
+        if (acc[m][1] === daysInMonth(m + "-01")) degreeDays[m] = +acc[m][2].toFixed(1);
+      });
+      LS.set("energie_histtemp_v1", histTemp); LS.set("energie_gd_v1", degreeDays);
       renderAll();
+      if (insightsModal.classList.contains("open")) renderInsights();
     } catch (e) { console.warn("Temperatuurhistorie niet beschikbaar", e); }
   }
 
   /* ================= Back-up ================= */
   document.getElementById("exportBtn").onclick = () => {
     commit();
-    const blob = new Blob([JSON.stringify({ app: "mijn-energie", versie: 2, contracts, termijnen, hist, histTemp }, null, 1)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify({ app: "mijn-energie", versie: 2, contracts, termijnen, hist, histTemp, degreeDays, wpStart }, null, 1)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob); a.download = "energie-backup-" + todayKey() + ".json";
     document.body.appendChild(a); a.click(); a.remove();
@@ -1599,12 +1658,178 @@
       const js = JSON.parse(await importInput.files[0].text());
       if (!Array.isArray(js.contracts) || !js.contracts.length) throw new Error("geen geldige back-up");
       contracts = js.contracts; termijnen = js.termijnen || {}; hist = js.hist || {}; histTemp = js.histTemp || {};
+      degreeDays = js.degreeDays || {}; LS.set("energie_gd_v1", degreeDays);
+      if (js.wpStart !== undefined) { wpStart = js.wpStart; LS.set("energie_wp_v1", wpStart); wpInput.value = wpStart; }
       saveAll(); LS.set("energie_histtemp_v1", histTemp);
       openModal(); afterHistChange();
       st.textContent = "✓ Back-up ingelezen.";
     } catch (e) { st.textContent = "Fout: " + e.message; }
     finally { importInput.value = ""; }
   };
+
+  /* ================= Inzichten ================= */
+  let degreeDays = LS.get("energie_gd_v1", {});   // graaddagen per maand (basis 18 °C)
+  let wpStart = LS.get("energie_wp_v1", "");       // "2023-11"
+  const insightsModal = document.getElementById("insightsModal");
+  let seasonChart = null;
+  const GD_BASE = 18;
+
+  function allMonths() {
+    const [f, l] = dataBounds(), out = [];
+    for (let m = f.slice(0, 7); m <= l.slice(0, 7); m = addMonths(m + "-01", 1).slice(0, 7)) out.push(m);
+    return out;
+  }
+  // Maandtotalen uit meterdata (voorrang) of Excel-historie
+  function monthTotals(m) {
+    if (DAILY_MONTHS.has(m)) {
+      const ks = ALL_DATES.filter(k => k.startsWith(m));
+      let afn = 0, ret = 0, gas = 0, gd = 0, gdOk = true;
+      ks.forEach(k => {
+        const d = DAY[k];
+        afn += d.afnHigh + d.afnLow; ret += d.retHigh + d.retLow; gas += d.gas;
+        if (d.temp === null) gdOk = false; else gd += Math.max(0, GD_BASE - d.temp);
+      });
+      const complete = ks.length === daysInMonth(m + "-01");
+      return { afn, ret, gas, gd: complete && gdOk ? gd : null, complete };
+    }
+    const h = hist[m];
+    if (!h) return null;
+    return { afn: h.afn || 0, ret: h.ret || 0, gas: h.gas || 0, gd: degreeDays[m] !== undefined ? degreeDays[m] : null, complete: monthEnd(m) < todayKey() };
+  }
+
+  function renderInsights() {
+    const months = allMonths();
+    const T = {}; months.forEach(m => { const t = monthTotals(m); if (t) T[m] = t; });
+    const fmt0 = v => v === null || v === undefined ? "–" : nf0.format(v);
+    const cell = (tr, v, num) => { const td = document.createElement("td"); td.textContent = v; if (num) td.className = "num"; tr.appendChild(td); return td; };
+
+    // ---- Jaaroverzicht ----
+    const yb = document.querySelector("#yearTable tbody"); yb.innerHTML = "";
+    const years = [...new Set(Object.keys(T).map(m => m.slice(0, 4)))].sort().reverse();
+    years.forEach(y => {
+      const ms = Object.keys(T).filter(m => m.startsWith(y));
+      const s = ms.reduce((a, m) => ({ afn: a.afn + T[m].afn, ret: a.ret + T[m].ret, gas: a.gas + T[m].gas }), { afn: 0, ret: 0, gas: 0 });
+      const full = ms.length === 12 && ms.every(m => T[m].complete);
+      const gdAll = ms.every(m => T[m].gd !== null) ? ms.reduce((a, m) => a + T[m].gd, 0) : null;
+      const c = sumParts(partsIn(y + "-01-01", y + "-12-31", true));
+      const tr = document.createElement("tr");
+      if (!full) tr.className = "muted";
+      const lastM = ms.sort()[ms.length - 1];
+      cell(tr, full ? y : y + " (t/m " + MONTHS_SHORT[+lastM.slice(5) - 1] + ")");
+      [s.afn, s.ret, s.afn - s.ret, s.gas].forEach(v => cell(tr, fmt0(v), true));
+      cell(tr, full ? fmt0(gdAll) : "–", true);
+      cell(tr, euro0(c.elec + c.gas + c.fixed) + (c.est ? " ≈" : ""), true);
+      yb.appendChild(tr);
+    });
+
+    // ---- Stookseizoenen ----
+    const seasonMonths = y => ["10", "11", "12"].map(x => y + "-" + x).concat(["01", "02", "03", "04"].map(x => (y + 1) + "-" + x));
+    const firstY = years.length ? +years[years.length - 1] - 1 : 0, lastY = years.length ? +years[0] : -1;
+    const seasons = [];
+    for (let y = firstY; y <= lastY; y++) {
+      const ms = seasonMonths(y), have = ms.filter(m => T[m]);
+      if (!have.length) continue;
+      const complete = have.length === 7 && have.every(m => T[m].complete);
+      const gas = have.reduce((a, m) => a + T[m].gas, 0), afn = have.reduce((a, m) => a + T[m].afn, 0);
+      const gd = complete && have.every(m => T[m].gd !== null) ? have.reduce((a, m) => a + T[m].gd, 0) : null;
+      let regime = "";
+      if (wpStart) regime = wpStart <= y + "-11" ? "na" : (wpStart > (y + 1) + "-04" ? "voor" : "overgang");
+      const lopend = ms.some(m => m >= todayKey().slice(0, 7)) || (ALL_DATES.length && ms.includes(ALL_DATES[ALL_DATES.length - 1].slice(0, 7)));
+      seasons.push({ label: y + "/" + String(y + 1).slice(2), start: y + "-10", lopend, gas, afn, gd, complete, regime,
+                     gasPer: gd ? gas / gd * 1000 : null, elecPer: gd ? afn / gd * 1000 : null });
+    }
+    const sb = document.querySelector("#seasonTable tbody"); sb.innerHTML = "";
+    seasons.slice().reverse().forEach(s => {
+      const tr = document.createElement("tr");
+      if (!s.complete) tr.className = "muted";
+      cell(tr, s.label + (s.complete ? "" : s.lopend ? " (lopend)" : " (onvolledig)"));
+      [s.gas, s.afn, s.gd, s.gasPer, s.elecPer].forEach(v => cell(tr, fmt0(v), true));
+      const td = cell(tr, "");
+      if (s.regime === "na" || s.regime === "voor") { const b = document.createElement("span"); b.className = "badge " + (s.regime === "na" ? "ok" : "warn"); b.textContent = s.regime === "na" ? "warmtepomp" : "cv-ketel"; td.appendChild(b); }
+      sb.appendChild(tr);
+    });
+
+    // ---- Samenvatting warmtepomp ----
+    const sum = document.getElementById("wpSummary"); sum.innerHTML = "";
+    const card = (lbl, val, sub) => { const d = document.createElement("div"); d.className = "ins-card"; d.innerHTML = '<div class="lbl"></div><div class="val"></div><div class="sub"></div>'; d.children[0].textContent = lbl; d.children[1].textContent = val; d.children[2].textContent = sub || ""; sum.appendChild(d); };
+    // alleen seizoenen mét zonnepanelen vergelijken, anders vertekent de stroomafname
+    const solarFrom = Object.keys(T).filter(m => T[m].complete).find(m => T[m].ret > 5) || "";
+    const usable = seasons.filter(s => s.complete && s.gd && (!solarFrom || s.start >= solarFrom));
+    const avg = (arr, f) => arr.length ? arr.reduce((a, s) => a + f(s), 0) / arr.length : null;
+    const before = usable.filter(s => s.regime === "voor"), after = usable.filter(s => s.regime === "na");
+    if (!wpStart) {
+      card("Warmtepomp", "Niet ingesteld", "Vul hierboven de maand in waarin de warmtepomp in gebruik kwam.");
+    } else if (!before.length || !after.length) {
+      card("Warmtepomp", "Te weinig data", "Nodig: minimaal één volledig stookseizoen vóór én na, met temperaturen.");
+    } else {
+      const gdAvg = avg(usable, s => s.gd);
+      const gB = avg(before, s => s.gasPer), gA = avg(after, s => s.gasPer);
+      const eB = avg(before, s => s.elecPer), eA = avg(after, s => s.elecPer);
+      const dGas = (gA - gB) / 1000 * gdAvg, dElec = (eA - eB) / 1000 * gdAvg;
+      const t = tariffsFor(ALL_DATES.length ? ALL_DATES[ALL_DATES.length - 1] : todayKey());
+      const elecRate = t.tariffType === "single" ? t.elecPeak : (t.elecPeak + t.elecOffPeak) / 2;
+      const euroEffect = -dGas * t.gasRate - dElec * elecRate;
+      card("Gas per stookseizoen", (dGas <= 0 ? "−" : "+") + nf0.format(Math.abs(dGas)) + " m³", nf0.format(gB / 1000 * gdAvg) + " → " + nf0.format(gA / 1000 * gdAvg) + " m³ (" + nf0.format((gA / gB - 1) * 100) + "%)");
+      card("Stroom per stookseizoen", (dElec >= 0 ? "+" : "−") + nf0.format(Math.abs(dElec)) + " kWh", nf0.format(eB / 1000 * gdAvg) + " → " + nf0.format(eA / 1000 * gdAvg) + " kWh afname");
+      card(euroEffect >= 0 ? "Besparing per seizoen" : "Meerkosten per seizoen", euro0(Math.abs(euroEffect)), "tegen huidige tarieven (gas " + euro(t.gasRate) + "/m³, stroom " + euro(elecRate) + "/kWh)");
+      card("Vergeleken", before.length + " vs " + after.length + " seizoenen", "bij een gemiddelde winter van " + nf0.format(gdAvg) + " graaddagen");
+    }
+
+    // ---- Grafiek ----
+    if (seasonChart) seasonChart.destroy();
+    if (window.Chart) {
+      const cs = seasons.filter(s => s.gasPer !== null);
+      const text = cssVar("--muted"), grid = cssVar("--border");
+      seasonChart = new Chart(document.getElementById("seasonChart"), {
+        type: "bar",
+        data: { labels: cs.map(s => s.label), datasets: [
+          { label: "Gas m³ / 1.000 GD", data: cs.map(s => +s.gasPer.toFixed(0)), backgroundColor: cssVar("--gas"), borderRadius: 3, yAxisID: "y" },
+          { label: "Stroomafname kWh / 1.000 GD", data: cs.map(s => +s.elecPer.toFixed(0)), backgroundColor: cssVar("--elec"), borderRadius: 3, yAxisID: "y1" }
+        ] },
+        options: { responsive: true, maintainAspectRatio: false, animation: { duration: 200 },
+          plugins: { legend: { labels: { color: text, boxWidth: 12, font: { size: 11 } } } },
+          scales: { x: { ticks: { color: text }, grid: { display: false } },
+                    y: { ticks: { color: cssVar("--gas") }, grid: { color: grid }, title: { display: true, text: "m³", color: text } },
+                    y1: { position: "right", ticks: { color: cssVar("--elec") }, grid: { drawOnChartArea: false }, title: { display: true, text: "kWh", color: text } } } }
+      });
+    }
+
+    // ---- Afwijkingen ----
+    const ab = document.querySelector("#anomalyTable tbody"); ab.innerHTML = "";
+    const full = Object.keys(T).filter(m => T[m].complete);
+    const solarStart = full.find(m => T[m].ret > 5) || "9999";
+    const regimeOf = m => !wpStart ? "" : (m >= wpStart ? "na" : "voor");
+    const what = { afn: ["Stroomafname", "kWh"], ret: ["Teruglevering", "kWh"], gas: ["Gas", "m³"] };
+    const rows = [];
+    Object.keys(what).forEach(key => {
+      full.forEach(m => {
+        if (key === "ret" && m <= solarStart) return; // eerste maand met panelen is meestal maar deels
+        const peers = full.filter(p => p !== m && p.slice(5) === m.slice(5) && (key === "ret" ? p >= solarStart : regimeOf(p) === regimeOf(m)))
+                          .map(p => T[p][key]).sort((a, b) => a - b);
+        if (peers.length < 2) return;
+        const med = peers.length % 2 ? peers[(peers.length - 1) / 2] : (peers[peers.length / 2 - 1] + peers[peers.length / 2]) / 2;
+        const v = T[m][key];
+        if (med > 20 && (v < 0.35 * med || v > 2.5 * med)) rows.push({ m, key, v, med, low: v < med });
+      });
+    });
+    rows.sort((a, b) => (a.m < b.m ? 1 : -1));
+    if (!rows.length) { const tr = document.createElement("tr"); tr.innerHTML = '<td colspan="5" style="color:var(--muted)">Geen opvallende afwijkingen gevonden.</td>'; ab.appendChild(tr); }
+    rows.forEach(r => {
+      const tr = document.createElement("tr");
+      cell(tr, fmtMonth(r.m)); cell(tr, what[r.key][0]);
+      cell(tr, nf1.format(r.v) + " " + what[r.key][1], true); cell(tr, "± " + nf0.format(r.med) + " " + what[r.key][1], true);
+      const td = cell(tr, ""); const b = document.createElement("span");
+      b.className = "badge " + (r.low ? "warn" : "ok"); b.textContent = r.low ? "laag" : "hoog"; td.appendChild(b);
+      ab.appendChild(tr);
+    });
+  }
+
+  const wpInput = document.getElementById("wpStartInput");
+  wpInput.value = wpStart;
+  wpInput.onchange = () => { wpStart = wpInput.value; LS.set("energie_wp_v1", wpStart); renderInsights(); };
+  document.getElementById("openInsightsBtn").onclick = () => { renderInsights(); insightsModal.classList.add("open"); };
+  document.getElementById("closeInsightsBtn").onclick = () => insightsModal.classList.remove("open");
+  insightsModal.addEventListener("click", ev => { if (ev.target === insightsModal) insightsModal.classList.remove("open"); });
 
   /* ================= Start ================= */
   if (!ALL_DATES.length && !histMonths().length) document.getElementById("periodLabel").textContent = "Geen data gevonden (alle_data.js)";
