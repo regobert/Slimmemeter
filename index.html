@@ -607,6 +607,7 @@
             <option value="auto">Automatisch: per jaar t/m 2026, daarna per dag</option>
             <option value="jaar">Per (contract)jaar — salderingsregeling</option>
             <option value="dag">Per dag wegstrepen</option>
+            <option value="geen">Geen — afname en teruglevering elk tegen eigen (dynamisch) tarief</option>
           </select>
         </div>
         <div class="field">
@@ -703,10 +704,12 @@
       </div>
 
       <div class="section-title">Back-up (naar ander apparaat overzetten)</div>
-      <div class="hint">Contracten, termijnen en historie staan alleen op dit apparaat. Exporteer een back-up en open die op je iPad/telefoon om alles over te zetten.</div>
+      <div class="hint">"Contracten toevoegen" voegt contracten uit een bestand toe aan je bestaande contracten (een contract met dezelfde naam en startdatum wordt vervangen); de rest blijft staan. Contracten, termijnen en historie staan alleen op dit apparaat. Exporteer een back-up en open die op je iPad/telefoon om alles over te zetten.</div>
       <div class="row-actions">
         <button class="icon-btn" id="exportBtn">⬇️ Exporteer back-up</button>
         <button class="icon-btn" id="importBtn">⬆️ Importeer back-up</button>
+        <button class="icon-btn" id="importContractsBtn">➕ Contracten toevoegen (.json)</button>
+        <input type="file" id="importContractsInput" accept=".json,application/json" style="display:none;" />
         <input type="file" id="importFileInput" accept=".json,application/json" style="display:none;" />
       </div>
       <div class="status-msg" id="backupStatus"></div>
@@ -988,7 +991,10 @@
     const peak = +t.elecPeak, off = t.tariffType === "single" ? +t.elecPeak : +t.elecOffPeak, feed = +t.feedInRate;
     const afn = afnH + afnL, ret = retH + retL;
     let supply, credit;
-    if (mode === "jaar") {
+    if (mode === "geen") { // dynamisch: elke kWh tegen zijn eigen prijs, geen wegstrepen
+      supply = afnH * peak + afnL * off;
+      credit = -ret * feed;
+    } else if (mode === "jaar") {
       supply = afnH * peak + afnL * off;
       credit = -(retH * (f * peak + (1 - f) * feed) + retL * (f * off + (1 - f) * feed));
     } else { // per dag (of per maand bij maandtotalen) wegstrepen
@@ -1976,6 +1982,31 @@
   document.getElementById("openInsightsBtn").onclick = () => { renderInsights(); insightsModal.classList.add("open"); };
   document.getElementById("closeInsightsBtn").onclick = () => insightsModal.classList.remove("open");
   insightsModal.addEventListener("click", ev => { if (ev.target === insightsModal) insightsModal.classList.remove("open"); });
+
+  /* ================= Contracten toevoegen uit bestand ================= */
+  const importContractsInput = document.getElementById("importContractsInput");
+  document.getElementById("importContractsBtn").onclick = () => importContractsInput.click();
+  importContractsInput.onchange = async () => {
+    const st = document.getElementById("backupStatus");
+    try {
+      const js = JSON.parse(await importContractsInput.files[0].text());
+      const list = Array.isArray(js) ? js : js.contracts;
+      if (!Array.isArray(list) || !list.length) throw new Error("geen contracten in dit bestand");
+      readForm();
+      let added = 0, replaced = 0;
+      list.forEach(raw => {
+        if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw.start || "")) return;
+        const c = newContract(Object.assign({}, raw));
+        c.id = "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        const i = draft.findIndex(x => x.naam === c.naam && x.start === c.start);
+        if (i >= 0) { draft[i] = c; replaced++; } else { draft.push(c); added++; }
+        selId = c.id;
+      });
+      fillForm(); commit(); renderAll();
+      st.textContent = "✓ " + added + " contract(en) toegevoegd" + (replaced ? ", " + replaced + " vervangen" : "") + ".";
+    } catch (e) { st.textContent = "Fout: " + e.message; }
+    finally { importContractsInput.value = ""; }
+  };
 
   /* ================= Start ================= */
   if (!ALL_DATES.length && !histMonths().length) document.getElementById("periodLabel").textContent = "Geen data gevonden (alle_data.js)";
