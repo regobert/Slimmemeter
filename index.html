@@ -21,6 +21,7 @@
       --gas: #ea580c;
       --gas-soft: #ffedd5;
       --accent: #0077c8;
+      --temp: #64748b;
       --shadow: 0 2px 10px rgba(16, 24, 40, 0.06);
     }
     [data-theme="dark"] {
@@ -36,6 +37,7 @@
       --gas: #fb923c;
       --gas-soft: rgba(251, 146, 60, 0.16);
       --accent: #38bdf8;
+      --temp: #94a3b8;
       --shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
     }
 
@@ -239,7 +241,8 @@
       margin-bottom: 10px;
     }
     .total-title { font-size: 0.82rem; color: var(--muted); font-weight: 600; }
-    .total-euro { font-size: 1.9rem; font-weight: 800; letter-spacing: -0.5px; }
+    .total-euro { font-size: 1.75rem; font-weight: 800; letter-spacing: -0.5px; white-space: nowrap; }
+    .total-banner { gap: 10px; }
     .total-fixed { font-size: 0.75rem; color: var(--muted); text-align: right; }
 
     .forecast-box {
@@ -416,6 +419,20 @@
       margin-top: 6px;
       font-weight: 600;
     }
+    .modal-tabs { display: flex; gap: 4px; margin-bottom: 12px; flex-wrap: wrap; }
+    .section-title { font-size: 0.9rem; font-weight: 700; margin: 16px 0 6px; }
+    .hint { font-size: 0.78rem; color: var(--muted); margin: 4px 0 8px; line-height: 1.35; }
+    .row-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+    .row-actions select { flex: 1; min-width: 180px; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.88rem; }
+    .mini-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .mini-table th { text-align: left; color: var(--muted); font-weight: 600; padding: 4px; }
+    .mini-table td { padding: 3px 4px; border-top: 1px solid var(--border); }
+    .mini-table input { width: 100%; min-width: 60px; padding: 5px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.82rem; }
+    .del-btn { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 1rem; }
+    textarea.mail-input { width: 100%; min-height: 160px; padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.8rem; font-family: inherit; }
+    .chart-note { text-align: center; font-size: 0.8rem; color: var(--muted); margin-top: 4px; display: none; }
+    .chart-note.show { display: block; }
+    .est-flag { font-size: 0.7rem; color: var(--muted); font-weight: 600; }
   </style>
 </head>
 <body>
@@ -425,7 +442,7 @@
       <h1>⚡ Mijn Energie</h1>
     </div>
     <div class="top-actions">
-      <button class="icon-btn" id="openContractBtn">📄 Contract & Tarieven</button>
+      <button class="icon-btn" id="openContractBtn">📄 Contracten & gegevens</button>
       <button class="icon-btn" id="themeToggleBtn">🌙 Donker</button>
     </div>
   </div>
@@ -492,9 +509,9 @@
             </div>
           </div>
           <div class="forecast-details">
-            <div><strong>Jaarvoorspelling</strong> (vanaf <span id="contractStartLbl">01-10</span>):</div>
+            <div><strong>Jaarvoorspelling</strong> (vanaf <span id="contractStartLbl">-</span>):</div>
             <div>Verwacht jaarbedrag: <strong id="yearForecastEuro">€ 0</strong></div>
-            <div>Termijnbedrag: <strong id="termijnLbl">€ 150/mnd</strong></div>
+            <div>Termijnbedrag: <strong id="termijnLbl">-</strong></div>
             <div style="margin-top:6px;"><span class="badge ok" id="forecastBadge">Op schema</span></div>
           </div>
         </div>
@@ -516,6 +533,7 @@
       <div class="canvas-wrap">
         <canvas id="energyChart"></canvas>
       </div>
+      <div class="chart-note" id="chartNote"></div>
       <div class="swipe-hint">💡 Veeg links/rechts op de grafiek voor vorige/volgende periode of tik op de tegels om te wisselen</div>
     </div>
   </div>
@@ -524,65 +542,145 @@
 <div class="modal-backdrop" id="contractModal">
   <div class="modal">
     <div class="modal-head">
-      <h2>📄 Energiecontract & Tarieven</h2>
+      <h2>📄 Contracten & gegevens</h2>
       <button class="icon-btn" id="closeContractBtn">✕ Sluiten</button>
     </div>
 
-    <div class="upload-box" id="pdfDropZone">
-      <strong>Klik om je energiecontract (PDF) te uploaden</strong><br/>
-      <span style="font-size:0.8rem; color:var(--muted);">Wordt 100% lokaal in je browser uitgelezen; daarna kun je elk bedrag zelf aanpassen.</span>
-      <input type="file" id="pdfFileInput" accept="application/pdf" style="display:none;" />
-      <div class="status-msg" id="pdfStatus"></div>
+    <div class="modal-tabs seg-group" id="modalTabs">
+      <button class="seg-btn active" data-tab="tabContract">Contracten</button>
+      <button class="seg-btn" data-tab="tabTermijn">Termijnbedragen</button>
+      <button class="seg-btn" data-tab="tabMail">E-mail plakken</button>
+      <button class="seg-btn" data-tab="tabHist">Historie & back-up</button>
     </div>
 
-    <div class="form-grid">
-      <div class="field">
-        <label>Startdatum contract (voor jaarvoorspelling)</label>
-        <input type="date" id="cfgContractDate" />
+    <!-- ===== Contracten ===== -->
+    <div class="tab-pane" id="tabContract">
+      <div class="row-actions">
+        <select id="contractSelect"></select>
+        <button class="icon-btn" id="addContractBtn">＋ Nieuw</button>
+        <button class="icon-btn" id="delContractBtn">🗑 Verwijder</button>
       </div>
-      <div class="field">
-        <label>Maandelijks termijnbedrag (€)</label>
-        <input type="number" step="0.01" id="cfgTermijn" />
+
+      <div class="upload-box" id="pdfDropZone">
+        <strong>Nieuw contract uit PDF</strong><br/>
+        <span style="font-size:0.8rem; color:var(--muted);">Wordt 100% lokaal uitgelezen en als nieuw contract toegevoegd. Controleer daarna de velden.</span>
+        <input type="file" id="pdfFileInput" accept="application/pdf" style="display:none;" />
+        <div class="status-msg" id="pdfStatus"></div>
       </div>
-      <div class="field">
-        <label>Tariefsoort stroom</label>
-        <select id="cfgTariffType">
-          <option value="double">Dubbel tarief (Normaal / Dal)</option>
-          <option value="single">Enkel tarief</option>
-        </select>
+
+      <div class="form-grid">
+        <div class="field">
+          <label>Naam / leverancier</label>
+          <input type="text" id="cfgName" />
+        </div>
+        <div class="field">
+          <label>Tariefsoort stroom</label>
+          <select id="cfgTariffType">
+            <option value="double">Dubbel tarief (Normaal / Dal)</option>
+            <option value="single">Enkel tarief</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Startdatum contract</label>
+          <input type="date" id="cfgStart" />
+        </div>
+        <div class="field">
+          <label>Einddatum (leeg = loopt door)</label>
+          <input type="date" id="cfgEnd" />
+        </div>
+        <div class="field">
+          <label>Stroom Normaal / Enkel (€ / kWh incl. btw)</label>
+          <input type="number" step="0.0001" id="cfgElecPeak" />
+        </div>
+        <div class="field">
+          <label>Stroom Dal (€ / kWh incl. btw)</label>
+          <input type="number" step="0.0001" id="cfgElecOffPeak" />
+        </div>
+        <div class="field">
+          <label>Terugleververgoeding overschot (€ / kWh)</label>
+          <input type="number" step="0.0001" id="cfgFeedInRate" />
+        </div>
+        <div class="field">
+          <label>Terugleverkosten (€ / teruggeleverde kWh)</label>
+          <input type="number" step="0.0001" id="cfgFeedInCost" />
+        </div>
+        <div class="field">
+          <label>Gasprijs (€ / m³ incl. btw)</label>
+          <input type="number" step="0.0001" id="cfgGasRate" />
+        </div>
+        <div class="field">
+          <label>Standaard termijnbedrag (€ / maand)</label>
+          <input type="number" step="0.01" id="cfgTermijn" />
+        </div>
+        <div class="field">
+          <label>Vaste leveringskosten stroom + gas (€ / dag)</label>
+          <input type="number" step="0.0001" id="cfgFixedSupplyDay" />
+        </div>
+        <div class="field">
+          <label>Netbeheerkosten stroom + gas (€ / dag)</label>
+          <input type="number" step="0.0001" id="cfgGridDay" />
+        </div>
+        <div class="field">
+          <label>Vermindering energiebelasting (€ / dag, negatief)</label>
+          <input type="number" step="0.0001" id="cfgTaxCreditDay" />
+        </div>
       </div>
-      <div class="field">
-        <label>Stroom Normaal / Enkel (€ / kWh incl. btw)</label>
-        <input type="number" step="0.0001" id="cfgElecPeak" />
+
+      <div class="section-title">Maandtarieven (variabel / dynamisch contract)</div>
+      <div class="hint">Per maand overschrijven deze tarieven de vaste tarieven hierboven. Lege velden = tarief van het contract. Snel invullen: plak de maandelijkse e-mail van je leverancier op het tabblad "E-mail plakken".</div>
+      <table class="mini-table" id="monthTariffTable">
+        <thead><tr><th>Maand</th><th>Normaal</th><th>Dal</th><th>Terug</th><th>Gas</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="row-actions" style="margin-top:8px;">
+        <input type="month" id="newTariffMonth" class="field" style="padding:6px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text);" />
+        <button class="icon-btn" id="addTariffMonthBtn">＋ Maand toevoegen</button>
       </div>
-      <div class="field">
-        <label>Stroom Dal (€ / kWh incl. btw)</label>
-        <input type="number" step="0.0001" id="cfgElecOffPeak" />
+    </div>
+
+    <!-- ===== Termijnen ===== -->
+    <div class="tab-pane" id="tabTermijn" style="display:none;">
+      <div class="hint" id="termijnHint"></div>
+      <table class="mini-table" id="termijnTable">
+        <thead><tr><th>Maand</th><th>Termijnbedrag (€)</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- ===== E-mail ===== -->
+    <div class="tab-pane" id="tabMail" style="display:none;">
+      <div class="hint">Open in Gmail de mail <em>"Verbruiksoverzicht &lt;maand&gt;"</em> of <em>"Termijnbedrag &lt;maand&gt;"</em>, selecteer alle tekst, kopieer en plak hieronder. De tarieven of het termijnbedrag van die maand worden lokaal herkend en opgeslagen.</div>
+      <textarea class="mail-input" id="mailInput" placeholder="Plak hier de tekst van de e-mail…"></textarea>
+      <div class="row-actions" style="margin-top:8px;">
+        <button class="btn-primary" id="parseMailBtn">Verwerk e-mail</button>
       </div>
-      <div class="field">
-        <label>Terugleververgoeding overschot (€ / kWh)</label>
-        <input type="number" step="0.0001" id="cfgFeedInRate" />
+      <div class="status-msg" id="mailStatus"></div>
+    </div>
+
+    <!-- ===== Historie ===== -->
+    <div class="tab-pane" id="tabHist" style="display:none;">
+      <div class="upload-box" id="xlsxDropZone">
+        <strong>Excelbestanden met verbruik uploaden</strong><br/>
+        <span style="font-size:0.8rem; color:var(--muted);">Meerdere bestanden tegelijk (elektriciteit én gas, per jaar). Wordt lokaal verwerkt; bestaande maanden worden overschreven.</span>
+        <input type="file" id="xlsxFileInput" accept=".xlsx,.xls,.csv" multiple style="display:none;" />
+        <div class="status-msg" id="xlsxStatus"></div>
       </div>
-      <div class="field">
-        <label>Terugleverkosten (€ / teruggeleverde kWh)</label>
-        <input type="number" step="0.0001" id="cfgFeedInCost" />
+      <table class="mini-table" id="histTable">
+        <thead><tr><th>Jaar</th><th>Maanden</th><th>Afname kWh</th><th>Terug kWh</th><th>Gas m³</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="row-actions" style="margin-top:8px;">
+        <button class="icon-btn" id="clearHistBtn">🗑 Historie wissen</button>
       </div>
-      <div class="field">
-        <label>Gasprijs (€ / m³ incl. btw)</label>
-        <input type="number" step="0.0001" id="cfgGasRate" />
+
+      <div class="section-title">Back-up (naar ander apparaat overzetten)</div>
+      <div class="hint">Contracten, termijnen en historie staan alleen op dit apparaat. Exporteer een back-up en open die op je iPad/telefoon om alles over te zetten.</div>
+      <div class="row-actions">
+        <button class="icon-btn" id="exportBtn">⬇️ Exporteer back-up</button>
+        <button class="icon-btn" id="importBtn">⬆️ Importeer back-up</button>
+        <input type="file" id="importFileInput" accept=".json,application/json" style="display:none;" />
       </div>
-      <div class="field">
-        <label>Vaste leveringskosten stroom + gas (€ / dag)</label>
-        <input type="number" step="0.0001" id="cfgFixedSupplyDay" />
-      </div>
-      <div class="field">
-        <label>Netbeheerkosten stroom + gas (€ / dag)</label>
-        <input type="number" step="0.0001" id="cfgGridDay" />
-      </div>
-      <div class="field">
-        <label>Vermindering energiebelasting (€ / dag, negatief)</label>
-        <input type="number" step="0.0001" id="cfgTaxCreditDay" />
-      </div>
+      <div class="status-msg" id="backupStatus"></div>
     </div>
 
     <div class="modal-actions">
@@ -596,44 +694,921 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   }
 
+  /* ================= Opslag (alleen lokaal in deze browser) ================= */
+  const LS = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  };
+
   const RAW_DATA = window.ENERGIE_DATA || {};
   const ALL_DATES = Object.keys(RAW_DATA).sort();
+  const DAILY_MONTHS = new Set(ALL_DATES.map(k => k.slice(0, 7)));
+  const HENGELO = { lat: 52.2658, lon: 6.7931 };
 
   const GAS_MONTH_WEIGHTS = [0.165, 0.145, 0.120, 0.075, 0.040, 0.020, 0.015, 0.015, 0.030, 0.075, 0.130, 0.170];
   const ELEC_NET_WEIGHTS  = [0.115, 0.100, 0.085, 0.065, 0.050, 0.045, 0.045, 0.050, 0.065, 0.095, 0.135, 0.150];
+  const RATE_FIELDS = ["elecPeak", "elecOffPeak", "feedInRate", "gasRate"];
 
-  const DEFAULT_CFG = {
-    contractDate: "2026-10-01",
-    termijn: 150.00,
-    tariffType: "double",
-    elecPeak: 0.2850,
-    elecOffPeak: 0.2650,
-    feedInRate: 0.0550,
-    feedInCost: 0.1150,
-    gasRate: 1.3200,
-    fixedSupplyDay: 0.4800,
-    gridDay: 1.7500,
-    taxCreditDay: -1.7300
+  const TARIFF_DEFAULTS = {
+    tariffType: "double", elecPeak: 0.2850, elecOffPeak: 0.2650, feedInRate: 0.0550, feedInCost: 0.1150,
+    gasRate: 1.3200, fixedSupplyDay: 0.4800, gridDay: 1.7500, taxCreditDay: -1.7300, termijn: 150.00
+  };
+  function newContract(o) {
+    return Object.assign({ id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), naam: "Contract", start: "2026-10-01", end: "", maandTarieven: {} }, TARIFF_DEFAULTS, o || {});
+  }
+
+  let contracts = LS.get("energie_contracts_v1", null);
+  if (!Array.isArray(contracts) || !contracts.length) {
+    const old = LS.get("energie_cfg_v1", null); // instellingen uit de eerste versie overnemen
+    contracts = [newContract(Object.assign({ naam: "Huidig contract" }, old || {}, old && old.contractDate ? { start: old.contractDate } : {}))];
+  }
+  let termijnen = LS.get("energie_termijnen_v1", {});
+  let hist = LS.get("energie_hist_v1", {});
+  let histTemp = LS.get("energie_histtemp_v1", {});
+
+  function saveAll() {
+    LS.set("energie_contracts_v1", contracts);
+    LS.set("energie_termijnen_v1", termijnen);
+    LS.set("energie_hist_v1", hist);
+  }
+
+  /* ================= Thema ================= */
+  const themeBtn = document.getElementById("themeToggleBtn");
+  function applyTheme(t) {
+    document.documentElement.setAttribute("data-theme", t);
+    themeBtn.textContent = t === "dark" ? "☀️ Licht" : "🌙 Donker";
+  }
+  applyTheme(LS.get("energie_theme_v2", null) || (localStorage.getItem("energie_theme") === "dark" ? "dark" : "light"));
+  themeBtn.onclick = () => {
+    const nxt = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    applyTheme(nxt); LS.set("energie_theme_v2", nxt); renderAll();
   };
 
-  let cfg = Object.assign({}, DEFAULT_CFG, JSON.parse(localStorage.getItem("energie_cfg_v1") || "{}"));
+  /* ================= Hulpfuncties ================= */
+  const MONTHS_SHORT = ["jan","feb","mrt","apr","mei","jun","jul","aug","sep","okt","nov","dec"];
+  const MONTHS_LONG = ["januari","februari","maart","april","mei","juni","juli","augustus","september","oktober","november","december"];
+  const DAYS_SHORT = ["zo","ma","di","wo","do","vr","za"];
+
+  // "22.548,44" -> 22548.44 ; null / "-" / "" -> null
+  function num(v) {
+    if (v === null || v === undefined) return null;
+    if (typeof v === "number") return isFinite(v) ? v : null;
+    const s = String(v).trim();
+    if (s === "" || s === "-") return null;
+    const n = parseFloat(s.replace(/\./g, "").replace(",", "."));
+    return isFinite(n) ? n : null;
+  }
+  const z = v => num(v) || 0;
+  // invoerveld: accepteert zowel 0.29 als 0,29
+  const fieldNum = v => { const n = parseFloat(String(v).replace(",", ".")); return isFinite(n) ? n : null; };
+
+  // Tijdstempel is het EINDE van het interval ("01-10-2026 00:15:00" = 00:00-00:15)
+  function hourOfEnd(t) {
+    const m = /(\d{2}):(\d{2})/.exec(String(t || "").split(" ")[1] || "");
+    if (!m) return 0;
+    let mins = (+m[1]) * 60 + (+m[2]);
+    if (mins === 0) mins = 1440;
+    return Math.min(23, Math.floor((mins - 1) / 60));
+  }
+
+  const toDate = s => { const [y, m, d] = s.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d)); };
+  const toKey = d => d.toISOString().slice(0, 10);
+  const addDays = (s, n) => { const d = toDate(s); d.setUTCDate(d.getUTCDate() + n); return toKey(d); };
+  const addMonths = (s, n) => { const d = toDate(s); const day = d.getUTCDate(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + n); const dim = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate(); d.setUTCDate(Math.min(day, dim)); return toKey(d); };
+  const daysBetween = (a, b) => Math.round((toDate(b) - toDate(a)) / 86400000);
+  const daysInMonth = s => { const d = toDate(s); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate(); };
+  const monthEnd = m => addDays(addMonths(m + "-01", 1), -1);
+  const fmtDate = s => { const d = toDate(s); return d.getUTCDate() + " " + MONTHS_SHORT[d.getUTCMonth()] + " " + d.getUTCFullYear(); };
+  const fmtMonth = m => MONTHS_LONG[+m.slice(5, 7) - 1] + " " + m.slice(0, 4);
+  const todayKey = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+
+  const nf1 = new Intl.NumberFormat("nl-NL", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const nf2 = new Intl.NumberFormat("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const nf0 = new Intl.NumberFormat("nl-NL", { maximumFractionDigits: 0 });
+  const euro = v => "€ " + nf2.format(isFinite(v) ? v : 0);
+  const euro0 = v => "€ " + nf0.format(isFinite(v) ? v : 0);
+
+  /* ================= Dagaggregatie (slimme meter) ================= */
+  const DAY = {};
+  ALL_DATES.forEach(key => {
+    const raw = RAW_DATA[key] || {};
+    const d = {
+      afnHigh: 0, afnLow: 0, retHigh: 0, retLow: 0, gas: 0,
+      hAfn: new Array(24).fill(0), hRet: new Array(24).fill(0), hGas: new Array(24).fill(0),
+      hTemp: new Array(24).fill(null), temp: null
+    };
+    const meterTemps = new Array(24).fill(null);
+    (raw.elektriciteit || []).forEach(r => {
+      const h = hourOfEnd(r.time);
+      const ah = z(r.delivery_high), al = z(r.delivery_low);
+      const rh = z(r.returned_delivery_high), rl = z(r.returned_delivery_low);
+      d.afnHigh += ah; d.afnLow += al; d.retHigh += rh; d.retLow += rl;
+      d.hAfn[h] += ah + al; d.hRet[h] += rh + rl;
+      const t = num(r.temperature); if (t !== null) meterTemps[h] = t;
+    });
+    (raw.gas || []).forEach(r => {
+      const h = hourOfEnd(r.time);
+      const g = z(r.delivery);
+      d.gas += g; d.hGas[h] += g;
+      const t = num(r.temperature); if (t !== null) meterTemps[h] = t;
+    });
+    // Open-Meteo eerst, aangevuld met temperatuur uit de slimme meter
+    const uren = (raw.temp && raw.temp.uren) || {};
+    for (let h = 0; h < 24; h++) {
+      const t = num(uren[h] !== undefined ? uren[h] : uren[String(h)]);
+      d.hTemp[h] = t !== null ? t : meterTemps[h];
+    }
+    const g = raw.temp ? num(raw.temp.gemiddeld) : null;
+    const valid = d.hTemp.filter(t => t !== null);
+    d.temp = g !== null ? g : (valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : null);
+    DAY[key] = d;
+  });
+
+  /* ================= Historie (maandtotalen uit Excel) ================= */
+  // Maanden met detaildata uit de slimme meter gaan altijd voor.
+  function histMonths() {
+    return Object.keys(hist).filter(m => {
+      const h = hist[m];
+      return !DAILY_MONTHS.has(m) && h && ((h.afn || 0) + (h.ret || 0) + (h.gas || 0)) > 0;
+    }).sort();
+  }
+  function dataBounds() {
+    const hm = histMonths();
+    let first = ALL_DATES[0], last = ALL_DATES[ALL_DATES.length - 1];
+    if (hm.length) {
+      const hf = hm[0] + "-01", hl = monthEnd(hm[hm.length - 1]);
+      if (!first || hf < first) first = hf;
+      if (!last || hl > last) last = hl;
+    }
+    const t = todayKey();
+    return [first || t, last || t];
+  }
+
+  /* ================= Contracten & tarieven ================= */
+  const sortedContracts = () => contracts.slice().sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+  const inContract = (c, k) => c.start <= k && (!c.end || k <= c.end);
+  function contractFor(k, list) {
+    const s = (list || contracts).slice().sort((a, b) => (a.start < b.start ? -1 : 1));
+    let best = null;
+    s.forEach(c => { if (inContract(c, k)) best = c; });
+    if (best) return best;
+    if (!s.length) return newContract();
+    if (k < s[0].start) return s[0];
+    let prev = s[0]; s.forEach(c => { if (c.start <= k) prev = c; });
+    return prev;
+  }
+  const covered = k => contracts.some(c => inContract(c, k));
+  function tariffsFor(k) {
+    const c = contractFor(k);
+    const t = Object.assign({}, TARIFF_DEFAULTS, c);
+    const m = (c.maandTarieven || {})[k.slice(0, 7)] || {};
+    RATE_FIELDS.forEach(f => { if (m[f] !== null && m[f] !== undefined && m[f] !== "" && isFinite(m[f])) t[f] = +m[f]; });
+    return t;
+  }
+  const fixedDay = t => (+t.fixedSupplyDay || 0) + (+t.gridDay || 0) + (+t.taxCreditDay || 0);
+  function termijnFor(m) {
+    if (termijnen[m] !== undefined && termijnen[m] !== null && termijnen[m] !== "") return +termijnen[m];
+    return +contractFor(m + "-15").termijn || 0;
+  }
+
+  // Dagelijkse saldering: netto-afname tegen leveringstarief, netto-overschot tegen terugleververgoeding
+  function elecCost(afnHigh, afnLow, ret, t) {
+    const afn = afnHigh + afnLow, net = afn - ret;
+    let c;
+    if (net > 0) {
+      if (t.tariffType === "single") c = net * t.elecPeak;
+      else { const sh = afn > 0 ? afnHigh / afn : 0.5; c = net * (sh * t.elecPeak + (1 - sh) * t.elecOffPeak); }
+    } else c = net * t.feedInRate;
+    return c + ret * t.feedInCost;
+  }
+
+  function dayPart(k) {
+    const d = DAY[k], t = tariffsFor(k), ret = d.retHigh + d.retLow;
+    return { key: k, days: 1, elec: elecCost(d.afnHigh, d.afnLow, ret, t), gas: d.gas * t.gasRate, fixed: fixedDay(t),
+             afn: d.afnHigh + d.afnLow, ret, gasM3: d.gas, temp: d.temp, est: !covered(k), monthly: false };
+  }
+  // Historische maand (alleen totalen): saldering per maand als benadering, deel 'frac' van de maand
+  function histPart(m, frac) {
+    const h = hist[m], k = m + "-15", t = tariffsFor(k);
+    const afn = (h.afn || 0) * frac, ret = (h.ret || 0) * frac, gas = (h.gas || 0) * frac;
+    const days = daysInMonth(m + "-01") * frac;
+    return { key: m + "-01", days, elec: elecCost(afn / 2, afn / 2, ret, t), gas: gas * t.gasRate, fixed: fixedDay(t) * days,
+             afn, ret, gasM3: gas, temp: histTemp[m] !== undefined ? histTemp[m] : null, est: true, monthly: true };
+  }
+  function partsIn(s, e, withHist) {
+    const parts = ALL_DATES.filter(k => k >= s && k <= e).map(dayPart);
+    if (withHist) histMonths().forEach(m => {
+      const ms = m + "-01", me = monthEnd(m);
+      const os = ms > s ? ms : s, oe = me < e ? me : e;
+      if (os > oe) return;
+      parts.push(histPart(m, (daysBetween(os, oe) + 1) / daysInMonth(ms)));
+    });
+    return parts;
+  }
+  function sumParts(parts) {
+    const r = { elec: 0, gas: 0, fixed: 0, afn: 0, ret: 0, gasM3: 0, days: 0, est: false, monthly: false };
+    let ts = 0, tw = 0;
+    parts.forEach(p => {
+      ["elec", "gas", "fixed", "afn", "ret", "gasM3", "days"].forEach(f => r[f] += p[f]);
+      if (p.temp !== null && p.temp !== undefined) { ts += p.temp * p.days; tw += p.days; }
+      r.est = r.est || p.est; r.monthly = r.monthly || p.monthly;
+    });
+    r.temp = tw ? ts / tw : null;
+    return r;
+  }
+
+  /* ================= Periodes ================= */
   let state = {
-    mode: "day",
-    chartType: "elec",
-    showTemp: true,
-    cursorDate: ALL_DATES.length ? ALL_DATES[ALL_DATES.length - 1] : new Date().toISOString().slice(0,10),
-    customStart: ALL_DATES.length ? ALL_DATES[0] : "2026-10-01",
-    customEnd: ALL_DATES.length ? ALL_DATES[ALL_DATES.length - 1] : new Date().toISOString().slice(0,10)
+    mode: "day", chartType: "elec", showTemp: true,
+    cursorDate: ALL_DATES.length ? ALL_DATES[ALL_DATES.length - 1] : todayKey(),
+    customStart: dataBounds()[0], customEnd: dataBounds()[1]
+  };
+  const withHist = () => state.mode !== "day" && state.mode !== "week";
+
+  function periodRange(cursor) {
+    const c = cursor || state.cursorDate;
+    const d = toDate(c);
+    switch (state.mode) {
+      case "day": return [c, c];
+      case "week": { const wd = (d.getUTCDay() + 6) % 7; const s = addDays(c, -wd); return [s, addDays(s, 6)]; }
+      case "month": { const s = c.slice(0, 8) + "01"; return [s, addDays(addMonths(s, 1), -1)]; }
+      case "year": { const y = c.slice(0, 4); return [y + "-01-01", y + "-12-31"]; }
+      case "all": return dataBounds();
+      case "custom": { let s = state.customStart, e = state.customEnd; if (s > e) [s, e] = [e, s]; return [s, e]; }
+    }
+  }
+  function periodLabel(s, e) {
+    const d = toDate(s);
+    switch (state.mode) {
+      case "day": return DAYS_SHORT[d.getUTCDay()] + " " + fmtDate(s);
+      case "week": return fmtDate(s).replace(/ \d{4}$/, "") + " – " + fmtDate(e);
+      case "month": return MONTHS_LONG[d.getUTCMonth()] + " " + d.getUTCFullYear();
+      case "year": return String(d.getUTCFullYear());
+      default: return fmtDate(s) + " – " + fmtDate(e);
+    }
+  }
+  function shiftPeriod(dir) {
+    if (state.mode === "all" || state.mode === "custom") return;
+    const c = state.cursorDate;
+    const n = state.mode === "day" ? addDays(c, dir) : state.mode === "week" ? addDays(c, 7 * dir)
+            : state.mode === "month" ? addMonths(c, dir) : addMonths(c, 12 * dir);
+    const [first, last] = dataBounds();
+    const [ps, pe] = periodRange(n);
+    if (ps > last || pe < first) return; // niet voorbij de beschikbare data
+    state.cursorDate = n;
+    renderAll();
+  }
+
+  /* ================= Grafiekbuckets ================= */
+  function buildBuckets(s, e) {
+    const out = [];
+    if (state.mode === "day") {
+      const d = DAY[s];
+      for (let h = 0; h < 24; h++) out.push({ label: String(h).padStart(2, "0") + ":00", afn: d ? d.hAfn[h] : 0, ret: d ? d.hRet[h] : 0, gas: d ? d.hGas[h] : 0, temp: d ? d.hTemp[h] : null });
+      return out;
+    }
+    const span = daysBetween(s, e) + 1;
+    const monthHistOnly = state.mode === "month" && !DAILY_MONTHS.has(s.slice(0, 7)) && histMonths().includes(s.slice(0, 7));
+    const monthly = state.mode === "year" || span > 62 || monthHistOnly;
+    if (!monthly) {
+      for (let k = s; k <= e; k = addDays(k, 1)) {
+        const d = DAY[k], dt = toDate(k);
+        const lbl = state.mode === "week" ? DAYS_SHORT[dt.getUTCDay()] + " " + dt.getUTCDate() : dt.getUTCDate() + " " + MONTHS_SHORT[dt.getUTCMonth()];
+        out.push({ label: lbl, afn: d ? d.afnHigh + d.afnLow : 0, ret: d ? d.retHigh + d.retLow : 0, gas: d ? d.gas : 0, temp: d ? d.temp : null });
+      }
+      return out;
+    }
+    for (let m = s.slice(0, 8) + "01"; m <= e; m = addMonths(m, 1)) {
+      const me = monthEnd(m.slice(0, 7));
+      const r = sumParts(partsIn(m < s ? s : m, me > e ? e : me, true));
+      const dt = toDate(m);
+      out.push({ label: MONTHS_SHORT[dt.getUTCMonth()] + " '" + String(dt.getUTCFullYear()).slice(2), afn: r.afn, ret: r.ret, gas: r.gasM3, temp: r.temp });
+    }
+    return out;
+  }
+
+  /* ================= Grafiek ================= */
+  let chart = null;
+  const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  function renderChart(s, e) {
+    const b = buildBuckets(s, e);
+    const isElec = state.chartType === "elec";
+    const text = cssVar("--muted"), grid = cssVar("--border"), tempColor = cssVar("--temp");
+    const datasets = [];
+    if (isElec) {
+      datasets.push({ type: "bar", label: "Afname (kWh)", data: b.map(x => +x.afn.toFixed(3)), backgroundColor: cssVar("--elec"), borderRadius: 3, stack: "e", yAxisID: "y", order: 2 });
+      datasets.push({ type: "bar", label: "Teruglevering (kWh)", data: b.map(x => -(+x.ret.toFixed(3))), backgroundColor: cssVar("--return"), borderRadius: 3, stack: "e", yAxisID: "y", order: 2 });
+    } else {
+      datasets.push({ type: "bar", label: "Gas (m³)", data: b.map(x => +x.gas.toFixed(3)), backgroundColor: cssVar("--gas"), borderRadius: 3, yAxisID: "y", order: 2 });
+    }
+    const hasTemp = state.showTemp && b.some(x => x.temp !== null);
+    if (hasTemp) {
+      datasets.push({ type: "line", label: "Temperatuur (°C)", data: b.map(x => x.temp === null ? null : +x.temp.toFixed(1)),
+        borderColor: tempColor, backgroundColor: tempColor, borderWidth: 1.5, borderDash: [5, 4],
+        pointRadius: b.length > 40 ? 0 : 2, tension: 0.35, spanGaps: true, yAxisID: "y1", order: 1 });
+    }
+    const unit = isElec ? "kWh" : "m³";
+    const hasData = b.some(x => x.afn || x.ret || x.gas);
+    const note = document.getElementById("chartNote");
+    const histOnly = !hasData && !withHist() && histMonths().some(m => m <= e.slice(0, 7) && m >= s.slice(0, 7));
+    note.textContent = histOnly ? "Voor deze periode zijn alleen maandtotalen beschikbaar — kies Maand, Jaar of Alles." : (!hasData ? "Geen gegevens in deze periode." : "");
+    note.classList.toggle("show", !hasData);
+    const config = {
+      data: { labels: b.map(x => x.label), datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: { duration: 250 },
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { labels: { color: text, boxWidth: 12, font: { size: 11 } } },
+          tooltip: { callbacks: { label: ctx => {
+            const v = ctx.parsed.y; if (v === null) return null;
+            if (ctx.dataset.yAxisID === "y1") return " " + nf1.format(v) + " °C";
+            return " " + ctx.dataset.label.replace(/ \(.*\)/, "") + ": " + nf2.format(Math.abs(v)) + " " + unit;
+          } } }
+        },
+        scales: {
+          x: { stacked: true, ticks: { color: text, maxRotation: 0, autoSkip: true, font: { size: 10 } }, grid: { display: false } },
+          y: { stacked: true, ticks: { color: text, callback: v => nf1.format(v) }, grid: { color: grid }, title: { display: true, text: unit, color: text } },
+          y1: { display: hasTemp, position: "right", ticks: { color: tempColor, callback: v => v + "°" }, grid: { drawOnChartArea: false } }
+        }
+      }
+    };
+    if (chart) chart.destroy();
+    if (!window.Chart) { console.warn("Chart.js niet geladen"); return; }
+    chart = new Chart(document.getElementById("energyChart"), config);
+  }
+
+  /* ================= Tegels ================= */
+  function renderTiles(s, e) {
+    const r = sumParts(partsIn(s, e, withHist()));
+    const est = r.est ? ' <span class="est-flag">≈</span>' : "";
+    document.getElementById("elecEuro").innerHTML = euro(r.elec) + est;
+    document.getElementById("elecSub").innerHTML = "Afname: " + nf1.format(r.afn) + " kWh<br>Terug: " + nf1.format(r.ret) + " kWh";
+    document.getElementById("gasEuro").innerHTML = euro(r.gas) + est;
+    document.getElementById("gasSub").innerHTML = "Verbruik: " + nf1.format(r.gasM3) + " m³<br>Gem. temp: " + (r.temp !== null ? nf1.format(r.temp) : "-") + " °C";
+    document.getElementById("totalEuro").innerHTML = euro(r.elec + r.gas + r.fixed) + est;
+    const days = Math.round(r.days);
+    const ks = partsIn(s, e, withHist()).map(p => contractFor(p.key).naam);
+    const names = [...new Set(ks)];
+    document.getElementById("fixedBreakdown").innerHTML =
+      "Vaste kosten (" + days + " " + (days === 1 ? "dag" : "dagen") + "): " + euro(r.fixed) +
+      "<br>" + (names.length ? names.join(" + ") : "") +
+      (r.monthly ? "<br>≈ deels o.b.v. maandtotalen" : r.est ? "<br>≈ buiten contractperiode" : "");
+  }
+
+  /* ================= Jaarvoorspelling ================= */
+  function renderForecast() {
+    const ref = ALL_DATES.length ? ALL_DATES[ALL_DATES.length - 1] : dataBounds()[1];
+    const c = contractFor(ref);
+    const cs = c.start, ce = addDays(addMonths(cs, 12), -1);
+    let parts = partsIn(cs, ce < ref ? ce : ref, true);
+    if (!parts.length) parts = partsIn(addDays(ref, -364), ref, true);
+    let elec = 0, gas = 0, wE = 0, wG = 0;
+    parts.forEach(p => {
+      const mi = toDate(p.key).getUTCMonth(), frac = p.days / daysInMonth(p.key);
+      elec += p.elec; gas += p.gas;
+      wE += ELEC_NET_WEIGHTS[mi] * frac; wG += GAS_MONTH_WEIGHTS[mi] * frac;
+    });
+    let fixedYear = 0;
+    for (let k = cs; k <= ce; k = addDays(k, 1)) fixedYear += fixedDay(tariffsFor(k));
+    const year = (wE > 0 ? elec / wE : 0) + (wG > 0 ? gas / wG : 0) + fixedYear;
+    const month = year / 12;
+    let termijnYear = 0;
+    for (let i = 0; i < 12; i++) termijnYear += termijnFor(addMonths(cs, i).slice(0, 7));
+    const termijnAvg = termijnYear / 12;
+    const diffYear = termijnYear - year;
+    const days = Math.round(parts.reduce((a, p) => a + p.days, 0));
+
+    document.getElementById("contractStartLbl").textContent = fmtDate(cs);
+    document.getElementById("yearForecastEuro").textContent = euro0(year);
+    const curT = termijnFor(ref.slice(0, 7));
+    document.getElementById("termijnLbl").textContent = euro0(curT) + "/mnd" + (Math.abs(curT - termijnAvg) > 0.5 ? " (gem. " + euro0(termijnAvg) + ")" : "");
+    document.getElementById("ringEuro").textContent = euro0(month);
+
+    const ratio = termijnAvg > 0 ? month / termijnAvg : 0;
+    const ring = document.getElementById("ringProgress");
+    ring.setAttribute("stroke-dashoffset", (251.3 * (1 - Math.min(ratio, 1))).toFixed(1));
+    const badge = document.getElementById("forecastBadge");
+    if (!parts.length) {
+      badge.className = "badge warn"; badge.textContent = "Nog geen data"; ring.setAttribute("stroke", "var(--muted)");
+    } else if (diffYear >= 0) {
+      badge.className = "badge ok"; badge.textContent = "Terug: ~" + euro0(diffYear) + " (" + days + " dgn data)"; ring.setAttribute("stroke", "var(--elec)");
+    } else {
+      badge.className = "badge warn"; badge.textContent = "Bijbetalen: ~" + euro0(-diffYear) + " (" + days + " dgn data)"; ring.setAttribute("stroke", "var(--gas)");
+    }
+  }
+
+  /* ================= Render ================= */
+  function renderAll() {
+    const [s, e] = periodRange();
+    document.getElementById("periodLabel").textContent = periodLabel(s, e);
+    const navigable = state.mode !== "all" && state.mode !== "custom";
+    document.getElementById("prevPeriod").style.visibility = navigable ? "visible" : "hidden";
+    document.getElementById("nextPeriod").style.visibility = navigable ? "visible" : "hidden";
+    document.getElementById("customRange").classList.toggle("show", state.mode === "custom");
+    document.querySelectorAll("#periodTabs .seg-btn").forEach(b => b.classList.toggle("active", b.dataset.mode === state.mode));
+    const isElec = state.chartType === "elec";
+    document.getElementById("tileElec").classList.toggle("selected", isElec);
+    document.getElementById("tileGas").classList.toggle("selected", !isElec);
+    document.getElementById("btnShowElec").className = "tab-pill" + (isElec ? " active-elec" : "");
+    document.getElementById("btnShowGas").className = "tab-pill" + (!isElec ? " active-gas" : "");
+    renderTiles(s, e);
+    renderForecast();
+    renderChart(s, e);
+  }
+
+  /* ================= Bediening ================= */
+  document.querySelectorAll("#periodTabs .seg-btn").forEach(btn => {
+    btn.onclick = () => { state.mode = btn.dataset.mode; renderAll(); };
+  });
+  document.getElementById("prevPeriod").onclick = () => shiftPeriod(-1);
+  document.getElementById("nextPeriod").onclick = () => shiftPeriod(1);
+
+  const sIn = document.getElementById("startDateInput"), eIn = document.getElementById("endDateInput");
+  function syncRangeInputs() {
+    const [f, l] = dataBounds();
+    sIn.value = state.customStart; eIn.value = state.customEnd;
+    [sIn, eIn].forEach(i => { i.min = f; i.max = l; });
+  }
+  syncRangeInputs();
+  sIn.onchange = () => { if (sIn.value) { state.customStart = sIn.value; renderAll(); } };
+  eIn.onchange = () => { if (eIn.value) { state.customEnd = eIn.value; renderAll(); } };
+
+  const setType = t => { state.chartType = t; renderAll(); };
+  document.getElementById("tileElec").onclick = () => setType("elec");
+  document.getElementById("tileGas").onclick = () => setType("gas");
+  document.getElementById("btnShowElec").onclick = () => setType("elec");
+  document.getElementById("btnShowGas").onclick = () => setType("gas");
+  document.getElementById("toggleTemp").onchange = ev => { state.showTemp = ev.target.checked; renderAll(); };
+
+  (function () { // vegen op de grafiek
+    const area = document.getElementById("swipeArea");
+    let x0 = null, y0 = null;
+    area.addEventListener("touchstart", ev => { const t = ev.touches[0]; x0 = t.clientX; y0 = t.clientY; }, { passive: true });
+    area.addEventListener("touchend", ev => {
+      if (x0 === null) return;
+      const t = ev.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
+      x0 = null;
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) shiftPeriod(dx < 0 ? 1 : -1);
+    }, { passive: true });
+  })();
+  document.addEventListener("keydown", ev => {
+    if (modal.classList.contains("open") || /INPUT|TEXTAREA|SELECT/.test(ev.target.tagName)) return;
+    if (ev.key === "ArrowLeft") shiftPeriod(-1);
+    if (ev.key === "ArrowRight") shiftPeriod(1);
+  });
+
+  /* ================= Modal: contracten ================= */
+  const modal = document.getElementById("contractModal");
+  const CFG_FIELDS = {
+    naam: "cfgName", start: "cfgStart", end: "cfgEnd", tariffType: "cfgTariffType", termijn: "cfgTermijn",
+    elecPeak: "cfgElecPeak", elecOffPeak: "cfgElecOffPeak", feedInRate: "cfgFeedInRate", feedInCost: "cfgFeedInCost",
+    gasRate: "cfgGasRate", fixedSupplyDay: "cfgFixedSupplyDay", gridDay: "cfgGridDay", taxCreditDay: "cfgTaxCreditDay"
+  };
+  const TEXT_FIELDS = ["naam", "start", "end", "tariffType"];
+  let draft = null, draftTermijnen = null, selId = null;
+  const clone = o => JSON.parse(JSON.stringify(o));
+  const selContract = () => draft.find(c => c.id === selId);
+
+  function readForm() {
+    const c = selContract(); if (!c) return;
+    Object.entries(CFG_FIELDS).forEach(([k, id]) => {
+      const v = document.getElementById(id).value;
+      if (TEXT_FIELDS.includes(k)) c[k] = v;
+      else { const n = fieldNum(v); c[k] = n === null ? TARIFF_DEFAULTS[k] : n; }
+    });
+    if (!c.start) c.start = todayKey();
+    if (!c.naam) c.naam = "Contract";
+    const mt = {};
+    document.querySelectorAll("#monthTariffTable tbody tr").forEach(tr => {
+      const m = tr.dataset.month, row = {};
+      tr.querySelectorAll("input").forEach(inp => { const n = fieldNum(inp.value); if (n !== null) row[inp.dataset.f] = n; });
+      mt[m] = row;
+    });
+    c.maandTarieven = mt;
+    document.querySelectorAll("#termijnTable tbody input").forEach(inp => {
+      const n = fieldNum(inp.value);
+      if (n === null) delete draftTermijnen[inp.dataset.m]; else draftTermijnen[inp.dataset.m] = n;
+    });
+  }
+
+  function fillForm() {
+    const sel = document.getElementById("contractSelect");
+    sel.innerHTML = "";
+    draft.slice().sort((a, b) => (a.start < b.start ? 1 : -1)).forEach(c => {
+      const o = document.createElement("option");
+      o.value = c.id;
+      o.textContent = c.naam + " (" + fmtDate(c.start) + (c.end ? " – " + fmtDate(c.end) : " – heden") + ")";
+      sel.appendChild(o);
+    });
+    sel.value = selId;
+    const c = selContract();
+    Object.entries(CFG_FIELDS).forEach(([k, id]) => { document.getElementById(id).value = c[k] === undefined ? "" : c[k]; });
+    document.getElementById("cfgElecOffPeak").disabled = c.tariffType === "single";
+    // maandtarieven
+    const tb = document.querySelector("#monthTariffTable tbody");
+    tb.innerHTML = "";
+    Object.keys(c.maandTarieven || {}).sort().reverse().forEach(m => {
+      const r = c.maandTarieven[m] || {};
+      const tr = document.createElement("tr");
+      tr.dataset.month = m;
+      const td0 = document.createElement("td"); td0.textContent = fmtMonth(m); tr.appendChild(td0);
+      RATE_FIELDS.forEach(f => {
+        const td = document.createElement("td"), inp = document.createElement("input");
+        inp.type = "number"; inp.step = "0.0001"; inp.dataset.f = f; inp.value = r[f] !== undefined ? r[f] : ""; inp.placeholder = c[f];
+        td.appendChild(inp); tr.appendChild(td);
+      });
+      const tdd = document.createElement("td"), del = document.createElement("button");
+      del.className = "del-btn"; del.textContent = "✕"; del.title = "Verwijder maand";
+      del.onclick = () => { readForm(); delete selContract().maandTarieven[m]; fillForm(); };
+      tdd.appendChild(del); tr.appendChild(tdd);
+      tb.appendChild(tr);
+    });
+    // termijnbedragen voor de looptijd van dit contract
+    const tt = document.querySelector("#termijnTable tbody");
+    tt.innerHTML = "";
+    const endM = (c.end || addMonths(c.start, 11)).slice(0, 7);
+    let n = 0;
+    for (let m = c.start.slice(0, 7); m <= endM && n < 60; m = addMonths(m + "-01", 1).slice(0, 7), n++) {
+      const tr = document.createElement("tr");
+      const td0 = document.createElement("td"); td0.textContent = fmtMonth(m);
+      const td1 = document.createElement("td"), inp = document.createElement("input");
+      inp.type = "number"; inp.step = "0.01"; inp.dataset.m = m; inp.placeholder = c.termijn;
+      inp.value = draftTermijnen[m] !== undefined ? draftTermijnen[m] : "";
+      td1.appendChild(inp); tr.appendChild(td0); tr.appendChild(td1); tt.appendChild(tr);
+    }
+    document.getElementById("termijnHint").textContent = "Termijnbedragen voor " + c.naam + ". Lege velden = standaard termijnbedrag (" + euro(c.termijn) + "). Kies een ander contract op het tabblad Contracten.";
+    renderHistTable();
+  }
+
+  function openModal() {
+    draft = clone(contracts); draftTermijnen = clone(termijnen);
+    selId = contractFor(ALL_DATES.length ? ALL_DATES[ALL_DATES.length - 1] : todayKey(), draft).id;
+    ["pdfStatus", "mailStatus", "xlsxStatus", "backupStatus"].forEach(id => document.getElementById(id).textContent = "");
+    fillForm();
+    modal.classList.add("open");
+  }
+  function commit() {
+    readForm();
+    contracts = draft.map(c => Object.assign({}, c));
+    termijnen = Object.assign({}, draftTermijnen);
+    saveAll();
+  }
+
+  document.getElementById("openContractBtn").onclick = openModal;
+  document.getElementById("closeContractBtn").onclick = () => modal.classList.remove("open");
+  modal.addEventListener("click", ev => { if (ev.target === modal) modal.classList.remove("open"); });
+  document.querySelectorAll("#modalTabs .seg-btn").forEach(btn => {
+    btn.onclick = () => {
+      readForm(); fillForm();
+      document.querySelectorAll("#modalTabs .seg-btn").forEach(b => b.classList.toggle("active", b === btn));
+      document.querySelectorAll(".tab-pane").forEach(p => p.style.display = p.id === btn.dataset.tab ? "" : "none");
+    };
+  });
+  document.getElementById("contractSelect").onchange = ev => { readForm(); selId = ev.target.value; fillForm(); };
+  document.getElementById("cfgTariffType").onchange = ev => { document.getElementById("cfgElecOffPeak").disabled = ev.target.value === "single"; };
+  ["cfgName", "cfgStart", "cfgEnd", "cfgTermijn"].forEach(id => document.getElementById(id).addEventListener("change", () => { readForm(); fillForm(); }));
+  document.getElementById("addContractBtn").onclick = () => {
+    readForm();
+    const prev = selContract();
+    const c = newContract(Object.assign({}, prev, { id: undefined, naam: "Nieuw contract", start: todayKey(), end: "", maandTarieven: {} }));
+    c.id = "c" + Date.now().toString(36);
+    draft.push(c); selId = c.id; fillForm();
+  };
+  document.getElementById("delContractBtn").onclick = () => {
+    if (draft.length <= 1) { alert("Er moet minimaal één contract blijven."); return; }
+    const c = selContract();
+    if (!confirm("Contract '" + c.naam + "' verwijderen?")) return;
+    draft = draft.filter(x => x.id !== selId); selId = draft[0].id; fillForm();
+  };
+  document.getElementById("addTariffMonthBtn").onclick = () => {
+    const m = document.getElementById("newTariffMonth").value;
+    if (!m) return;
+    readForm();
+    const c = selContract(); c.maandTarieven = c.maandTarieven || {};
+    if (!c.maandTarieven[m]) c.maandTarieven[m] = {};
+    fillForm();
+  };
+  document.getElementById("saveContractBtn").onclick = () => { commit(); modal.classList.remove("open"); renderAll(); };
+
+  /* ================= PDF → nieuw contract ================= */
+  const pdfInput = document.getElementById("pdfFileInput");
+  document.getElementById("pdfDropZone").onclick = ev => { if (ev.target !== pdfInput) pdfInput.click(); };
+  pdfInput.onchange = async () => {
+    const file = pdfInput.files[0];
+    const status = document.getElementById("pdfStatus");
+    if (!file) return;
+    if (!window.pdfjsLib) { status.textContent = "PDF-lezer kon niet worden geladen."; return; }
+    status.textContent = "PDF wordt uitgelezen…";
+    try {
+      const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+      let text = "";
+      for (let p = 1; p <= pdf.numPages; p++) {
+        const tc = await (await pdf.getPage(p)).getTextContent();
+        let lastY = null;
+        tc.items.forEach(it => {
+          const y = it.transform ? Math.round(it.transform[5]) : null;
+          text += (lastY !== null && y !== lastY ? "\n" : " ") + it.str;
+          lastY = y;
+        });
+        text += "\n";
+      }
+      const found = parseContract(text);
+      readForm();
+      const c = newContract(Object.assign({}, selContract(), { naam: file.name.replace(/\.pdf$/i, ""), start: todayKey(), end: "", maandTarieven: {} }, found));
+      draft.push(c); selId = c.id;
+      fillForm();
+      const n = Object.keys(found).length;
+      status.textContent = "Nieuw contract toegevoegd: " + n + " waarde(n) herkend — controleer start-/einddatum en tarieven en klik op Opslaan.";
+    } catch (err) {
+      status.textContent = "Fout bij uitlezen PDF: " + err.message;
+    } finally { pdfInput.value = ""; }
   };
 
-  const savedTheme = localStorage.getItem("energie_theme") || "light";
-  document.documentElement.setAttribute("data-theme", savedTheme);
-  document.getElementById("themeToggleBtn").textContent = savedTheme === "dark" ? "☀️ Licht" : "🌙 Donker";
-  document.getElementById("themeToggleBtn").onclick = () => {
-    const cur = document.documentElement.getAttribute("data-theme");
-    const nxt = cur === "dark" ? "light" : "dark";
-    document.documentElement.setAttribute("data-theme", nxt);
-    localStorage.setItem("energie_theme", nxt);
-    document.getElementById("themeToggleBtn").textContent = nxt === "dark" ? "☀️ Licht" : "🌙 Donker";
-    renderAll();
+  function parseDutchDate(s) {
+    let m = /(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/.exec(s);
+    if (m) return m[3] + "-" + m[2].padStart(2, "0") + "-" + m[1].padStart(2, "0");
+    m = new RegExp("(\\d{1,2})\\s+(" + MONTHS_LONG.join("|") + ")\\s+(\\d{4})", "i").exec(s);
+    if (m) return m[3] + "-" + String(MONTHS_LONG.indexOf(m[2].toLowerCase()) + 1).padStart(2, "0") + "-" + m[1].padStart(2, "0");
+    return null;
+  }
+
+  function parseContract(text) {
+    const lines = text.split(/\n/).map(l => l.replace(/\s+/g, " ").trim()).filter(Boolean);
+    const out = {};
+    const amountRe = /(-?\s?€?\s?-?\d{1,4}[.,]\d{2,6})/g;
+    const amounts = l => (l.match(amountRe) || []).map(a => num(a.replace(/[€\s]/g, "").replace(/^(-?\d+)\.(\d+)$/, "$1,$2"))).filter(v => v !== null);
+    const perDay = (l, v) => /jaar/i.test(l) ? v / 365 : /maand|mnd/i.test(l) ? v * 12 / 365 : v;
+    const find = (re, not) => {
+      for (let i = 0; i < lines.length; i++) {
+        if (re.test(lines[i]) && !(not && not.test(lines[i]))) {
+          const a = amounts(lines[i]).length ? amounts(lines[i]) : amounts(lines[i + 1] || "");
+          if (a.length) return { v: a[a.length - 1], l: lines[i] + " " + (lines[i + 1] || "") };
+        }
+      }
+      return null;
+    };
+    const findDate = re => {
+      for (let i = 0; i < lines.length; i++) if (re.test(lines[i])) { const d = parseDutchDate(lines[i] + " " + (lines[i + 1] || "")); if (d) return d; }
+      return null;
+    };
+    let r, d;
+    if ((d = findDate(/ingangsdatum|startdatum|begindatum|leveringsdatum|levering start|ingang/i))) out.start = d;
+    if ((d = findDate(/einddatum|looptijd tot|loopt tot|geldig tot|eindigt/i))) out.end = d;
+    const lev = /(leverancier|energie)\s*:?\s*([A-Z][\w &|-]{2,40})/.exec(text);
+    if (lev && !out.naam) out.naam = lev[2].trim();
+    if ((r = find(/(normaal|piek|hoog)[^\n]*kwh|kwh[^\n]*(normaal|piek)/i, /terug/i))) out.elecPeak = +r.v.toFixed(5);
+    if ((r = find(/(dal|laag)[^\n]*kwh|kwh[^\n]*dal/i, /terug/i))) out.elecOffPeak = +r.v.toFixed(5);
+    if (!out.elecPeak && (r = find(/enkel[^\n]*kwh|kwh[^\n]*enkel|leveringstarief stroom|stroom[^\n]*per kwh/i, /terug/i))) { out.elecPeak = +r.v.toFixed(5); out.tariffType = "single"; }
+    else if (out.elecPeak && !out.elecOffPeak) out.tariffType = "single";
+    else if (out.elecPeak && out.elecOffPeak) out.tariffType = "double";
+    if ((r = find(/terugleververgoeding|vergoeding[^\n]*teruglever/i))) out.feedInRate = +Math.abs(r.v).toFixed(5);
+    if ((r = find(/terugleverkosten|kosten[^\n]*teruglever/i))) out.feedInCost = +Math.abs(r.v).toFixed(5);
+    if ((r = find(/gas[^\n]*m(3|³)|m(3|³)[^\n]*gas|leveringstarief gas/i, /vast|netbeheer/i))) out.gasRate = +r.v.toFixed(5);
+    if ((r = find(/termijnbedrag|voorschotbedrag|maandbedrag/i))) out.termijn = +Math.abs(r.v).toFixed(2);
+    const sumPerDay = re => {
+      let tot = 0, n = 0;
+      lines.forEach((l, i) => { if (re.test(l)) { const a = amounts(l).length ? amounts(l) : amounts(lines[i + 1] || ""); if (a.length) { tot += perDay(l, a[a.length - 1]); n++; } } });
+      return n ? +tot.toFixed(4) : null;
+    };
+    const fx = sumPerDay(/vaste leveringskosten|vastrecht levering|vaste kosten levering/i); if (fx !== null) out.fixedSupplyDay = fx;
+    const gr = sumPerDay(/netbeheer|transportkosten|aansluitkosten/i); if (gr !== null) out.gridDay = gr;
+    if ((r = find(/vermindering energiebelasting|heffingskorting/i))) out.taxCreditDay = -Math.abs(+perDay(r.l, r.v).toFixed(4));
+    return out;
+  }
+
+  /* ================= E-mail van leverancier plakken ================= */
+  function parseMail(text) {
+    const t = text.replace(/ /g, " ").replace(/m\s*\^?\s*3|m³/g, "m3");
+    const lines = t.split(/\n/).map(l => l.replace(/\s+/g, " ").trim()).filter(Boolean);
+    const res = {};
+    // maand bepalen
+    let m = /periode\s+(\d{2})-(\d{2})-(\d{4})\s*-\s*(\d{2})-(\d{2})-(\d{4})/i.exec(t);
+    if (m) res.month = m[3] + "-" + m[2];
+    const mr = new RegExp("(termijnbedrag|factuur van|verbruiksoverzicht)\\s+(" + MONTHS_LONG.join("|") + ")\\s+(\\d{4})", "i").exec(t);
+    if (!res.month && mr) res.month = mr[3] + "-" + String(MONTHS_LONG.indexOf(mr[2].toLowerCase()) + 1).padStart(2, "0");
+    // termijnbedrag
+    const tm = /termijnbedrag(?: van)?\s*€\s*([\d.]+,\d{2})/i.exec(t);
+    if (tm) res.termijn = num(tm[1]);
+    // verbruik (kWh / m3) en kosten (€) per regel
+    const usage = {}, cost = {};
+    const keyOf = l => {
+      const s = l.toLowerCase();
+      if (/totaal/.test(s)) return null;
+      if (/^teruglevering.*(normaal|hoog)/.test(s)) return "retH";
+      if (/^teruglevering.*(laag|dal)/.test(s)) return "retL";
+      if (/^teruglevering/.test(s)) return "ret";
+      if (/^elektriciteit.*(normaal|hoog)/.test(s)) return "afnH";
+      if (/^elektriciteit.*(laag|dal)/.test(s)) return "afnL";
+      if (/^elektriciteit/.test(s)) return "afn";
+      if (/^gas\b/.test(s)) return "gas";
+      return null;
+    };
+    let inExpected = false;
+    lines.forEach(l => {
+      if (/verwacht(e)? (jaar)?verbruik/i.test(l)) inExpected = true;
+      if (/indicatie (energie|verbruiks)kosten/i.test(l)) inExpected = false;
+      const k = keyOf(l); if (!k) return;
+      const eu = /€\s*(-?[\d.]*\d,\d{2})/.exec(l);
+      const us = /(-?[\d.]*\d(?:,\d+)?)\s*(kwh|m3)/i.exec(l);
+      if (eu && cost[k] === undefined) cost[k] = num(eu[1]);
+      else if (us && !inExpected && usage[k] === undefined) usage[k] = num(us[1]);
+    });
+    const price = (k) => (usage[k] && cost[k] !== undefined) ? Math.abs(cost[k]) / usage[k] : null;
+    const rates = {};
+    const pH = price("afnH"), pL = price("afnL"), pA = price("afn");
+    if (pH !== null) rates.elecPeak = pH; else if (pA !== null) rates.elecPeak = pA;
+    if (pL !== null) rates.elecOffPeak = pL;
+    const rH = price("retH"), rL = price("retL"), rA = price("ret");
+    const rr = [rH, rL, rA].filter(v => v !== null);
+    if (rr.length) {
+      const u = (usage.retH || 0) + (usage.retL || 0) + (usage.ret || 0);
+      const c = Math.abs(cost.retH || 0) + Math.abs(cost.retL || 0) + Math.abs(cost.ret || 0);
+      rates.feedInRate = u ? c / u : rr[0];
+    }
+    const pg = price("gas"); if (pg !== null) rates.gasRate = pg;
+    Object.keys(rates).forEach(k => rates[k] = +rates[k].toFixed(4));
+    if (Object.keys(rates).length) res.rates = rates;
+    return res;
+  }
+
+  document.getElementById("parseMailBtn").onclick = () => {
+    const status = document.getElementById("mailStatus");
+    const res = parseMail(document.getElementById("mailInput").value || "");
+    if (!res.month || (!res.rates && res.termijn === undefined)) {
+      status.style.color = "var(--gas)";
+      status.textContent = "Niets herkend. Plak de volledige tekst van een 'Verbruiksoverzicht'- of 'Termijnbedrag'-mail.";
+      return;
+    }
+    readForm();
+    const msgs = [];
+    if (res.rates) {
+      const c = contractFor(res.month + "-15", draft);
+      c.maandTarieven = c.maandTarieven || {};
+      c.maandTarieven[res.month] = Object.assign({}, c.maandTarieven[res.month] || {}, res.rates);
+      const r = res.rates;
+      msgs.push("Tarieven " + fmtMonth(res.month) + " (" + c.naam + "): " +
+        [r.elecPeak !== undefined ? "normaal € " + nf2.format(r.elecPeak) : "", r.elecOffPeak !== undefined ? "dal € " + nf2.format(r.elecOffPeak) : "",
+         r.feedInRate !== undefined ? "terug € " + nf2.format(r.feedInRate) : "", r.gasRate !== undefined ? "gas € " + nf2.format(r.gasRate) : ""].filter(Boolean).join(", "));
+    }
+    if (res.termijn !== undefined && res.termijn !== null) {
+      draftTermijnen[res.month] = res.termijn;
+      msgs.push("Termijnbedrag " + fmtMonth(res.month) + ": " + euro(res.termijn));
+    }
+    fillForm(); commit(); renderAll();
+    status.style.color = "";
+    status.textContent = "✓ Opgeslagen — " + msgs.join(" · ");
+    document.getElementById("mailInput").value = "";
   };
+
+  /* ================= Historie uit Excel ================= */
+  function loadScript(src) {
+    return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("kon " + src + " niet laden")); document.head.appendChild(s); });
+  }
+  async function ensureXLSX() {
+    if (!window.XLSX) await loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js");
+    return window.XLSX;
+  }
+  function cellMonth(v) {
+    if (v instanceof Date && !isNaN(v)) { const d = new Date(v.getTime() + 12 * 3600 * 1000); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); }
+    if (typeof v === "number" && v > 20000 && v < 80000) { const d = new Date(Math.round((v - 25569) * 86400000) + 12 * 3600 * 1000); return d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0"); }
+    const s = String(v || "");
+    let m = /(\d{4})-(\d{1,2})/.exec(s); if (m) return m[1] + "-" + m[2].padStart(2, "0");
+    m = /(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/.exec(s); if (m) return m[3] + "-" + m[2].padStart(2, "0");
+    return null;
+  }
+  const cellNum = v => typeof v === "number" ? v : num(v);
+
+  // Herkent kolommen als "levering totaal [kWh]", "teruglevering totaal [kWh]", "levering totaal [m³]"
+  function parseSheetRows(rows) {
+    let hi = rows.findIndex(r => r && r.some(c => /levering/i.test(String(c || ""))));
+    if (hi < 0) return null;
+    const head = rows[hi].map(c => String(c || "").toLowerCase());
+    const dateCol = head.findIndex(h => /tijdstip|datum|periode|maand|date/.test(h));
+    const cols = {};
+    head.forEach((h, i) => {
+      if (/terug/.test(h) && /kwh/.test(h)) cols.ret = i;
+      else if (/levering|verbruik/.test(h) && /kwh/.test(h)) cols.afn = i;
+      else if (/levering|verbruik/.test(h) && /m3|m³|gas/.test(h)) cols.gas = i;
+    });
+    if (!Object.keys(cols).length) return null;
+    const months = {};
+    rows.slice(hi + 1).forEach(r => {
+      if (!r) return;
+      const m = cellMonth(r[dateCol < 0 ? 0 : dateCol]); if (!m) return;
+      months[m] = months[m] || {};
+      Object.entries(cols).forEach(([k, i]) => { const v = cellNum(r[i]); if (v !== null) months[m][k] = (months[m][k] || 0) + Math.abs(v); });
+    });
+    return months;
+  }
+
+  const xlsxInput = document.getElementById("xlsxFileInput");
+  document.getElementById("xlsxDropZone").onclick = ev => { if (ev.target !== xlsxInput) xlsxInput.click(); };
+  xlsxInput.onchange = async () => {
+    const status = document.getElementById("xlsxStatus");
+    const files = [...xlsxInput.files];
+    if (!files.length) return;
+    status.style.color = ""; status.textContent = "Bezig met inlezen…";
+    const msgs = [];
+    try {
+      const X = await ensureXLSX();
+      for (const f of files) {
+        const wb = X.read(await f.arrayBuffer(), { type: "array", cellDates: true });
+        let got = 0;
+        wb.SheetNames.forEach(sn => {
+          const months = parseSheetRows(X.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null }));
+          if (!months) return;
+          Object.entries(months).forEach(([m, v]) => {
+            if (((v.afn || 0) + (v.ret || 0) + (v.gas || 0)) === 0) return; // lege (toekomstige) maanden overslaan
+            hist[m] = Object.assign({}, hist[m] || {}, v); got++;
+          });
+        });
+        msgs.push(f.name + ": " + (got ? got + " maand(en)" : "niet herkend"));
+      }
+      LS.set("energie_hist_v1", hist);
+      status.textContent = "✓ " + msgs.join(" · ");
+      afterHistChange();
+    } catch (err) {
+      status.style.color = "var(--gas)"; status.textContent = "Fout: " + err.message;
+    } finally { xlsxInput.value = ""; }
+  };
+
+  function renderHistTable() {
+    const tb = document.querySelector("#histTable tbody");
+    tb.innerHTML = "";
+    const years = {};
+    Object.keys(hist).sort().forEach(m => {
+      const y = m.slice(0, 4), h = hist[m];
+      years[y] = years[y] || { n: 0, afn: 0, ret: 0, gas: 0 };
+      years[y].n++; years[y].afn += h.afn || 0; years[y].ret += h.ret || 0; years[y].gas += h.gas || 0;
+    });
+    const ys = Object.keys(years).sort().reverse();
+    if (!ys.length) { const tr = document.createElement("tr"); tr.innerHTML = '<td colspan="5" style="color:var(--muted)">Nog geen historie geüpload.</td>'; tb.appendChild(tr); return; }
+    ys.forEach(y => {
+      const r = years[y], tr = document.createElement("tr");
+      [y, r.n, nf0.format(r.afn), nf0.format(r.ret), nf0.format(r.gas)].forEach(v => { const td = document.createElement("td"); td.textContent = v; tr.appendChild(td); });
+      tb.appendChild(tr);
+    });
+  }
+  document.getElementById("clearHistBtn").onclick = () => {
+    if (!confirm("Alle geüploade historie wissen?")) return;
+    hist = {}; histTemp = {}; LS.set("energie_hist_v1", hist); LS.set("energie_histtemp_v1", histTemp);
+    afterHistChange();
+  };
+  function afterHistChange() {
+    const [f, l] = dataBounds();
+    if (state.customStart < f || state.customStart > l) state.customStart = f;
+    syncRangeInputs(); renderHistTable(); renderAll(); fetchHistTemps();
+  }
+
+  // Maandgemiddelde buitentemperatuur Hengelo voor historische maanden (Open-Meteo archief, alleen coördinaten worden verstuurd)
+  async function fetchHistTemps() {
+    const need = histMonths().filter(m => histTemp[m] === undefined && monthEnd(m) < todayKey());
+    if (!need.length) return;
+    try {
+      const url = "https://archive-api.open-meteo.com/v1/archive?latitude=" + HENGELO.lat + "&longitude=" + HENGELO.lon +
+        "&start_date=" + need[0] + "-01&end_date=" + monthEnd(need[need.length - 1]) + "&daily=temperature_2m_mean&timezone=Europe%2FAmsterdam";
+      const js = await (await fetch(url)).json();
+      const acc = {};
+      (js.daily && js.daily.time || []).forEach((d, i) => {
+        const v = js.daily.temperature_2m_mean[i]; if (v === null) return;
+        const m = d.slice(0, 7); acc[m] = acc[m] || [0, 0]; acc[m][0] += v; acc[m][1]++;
+      });
+      need.forEach(m => { if (acc[m]) histTemp[m] = +(acc[m][0] / acc[m][1]).toFixed(1); });
+      LS.set("energie_histtemp_v1", histTemp);
+      renderAll();
+    } catch (e) { console.warn("Temperatuurhistorie niet beschikbaar", e); }
+  }
+
+  /* ================= Back-up ================= */
+  document.getElementById("exportBtn").onclick = () => {
+    commit();
+    const blob = new Blob([JSON.stringify({ app: "mijn-energie", versie: 2, contracts, termijnen, hist, histTemp }, null, 1)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = "energie-backup-" + todayKey() + ".json";
+    document.body.appendChild(a); a.click(); a.remove();
+    document.getElementById("backupStatus").textContent = "✓ Back-up gedownload.";
+  };
+  const importInput = document.getElementById("importFileInput");
+  document.getElementById("importBtn").onclick = () => importInput.click();
+  importInput.onchange = async () => {
+    const st = document.getElementById("backupStatus");
+    try {
+      const js = JSON.parse(await importInput.files[0].text());
+      if (!Array.isArray(js.contracts) || !js.contracts.length) throw new Error("geen geldige back-up");
+      contracts = js.contracts; termijnen = js.termijnen || {}; hist = js.hist || {}; histTemp = js.histTemp || {};
+      saveAll(); LS.set("energie_histtemp_v1", histTemp);
+      openModal(); afterHistChange();
+      st.textContent = "✓ Back-up ingelezen.";
+    } catch (e) { st.textContent = "Fout: " + e.message; }
+    finally { importInput.value = ""; }
+  };
+
+  /* ================= Start ================= */
+  if (!ALL_DATES.length && !histMonths().length) document.getElementById("periodLabel").textContent = "Geen data gevonden (alle_data.js)";
+  renderAll();
+  fetchHistTemps();
+</script>
+</body>
+</html>
