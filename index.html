@@ -450,6 +450,13 @@
     .cost-details summary { cursor: pointer; color: var(--accent); font-weight: 600; margin-bottom: 4px; }
     .cost-details td.num { text-align: right; white-space: nowrap; }
     .cost-details tr.tot td { font-weight: 700; }
+    .add-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+    .add-option { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; padding: 10px 12px;
+      border: 1px solid var(--border); border-radius: 12px; background: var(--bg); color: var(--text); cursor: pointer; font: inherit; }
+    .add-option:hover { border-color: var(--accent); }
+    .ao-icon { font-size: 1.2rem; }
+    .ao-title { font-weight: 700; font-size: 0.88rem; }
+    .ao-text { font-size: 0.76rem; color: var(--muted); line-height: 1.3; }
   </style>
 </head>
 <body>
@@ -578,29 +585,44 @@
 
     <!-- ===== Contracten ===== -->
     <div class="tab-pane" id="tabContract">
-      <div class="row-actions">
-        <select id="contractSelect"></select>
-        <button class="icon-btn" id="addContractBtn">＋ Nieuw</button>
-        <button class="icon-btn" id="delContractBtn">🗑 Verwijder</button>
-        <button class="icon-btn" id="importContractsBtn2" title="Contracten uit een .json-bestand toevoegen">➕ Importeer</button>
-      </div>
-      <div class="table-scroll" style="margin-bottom:10px;">
+      <!-- verborgen: oude bediening, blijft bestaan voor de code -->
+      <select id="contractSelect" style="display:none;"></select>
+      <button id="delContractBtn" style="display:none;"></button>
+
+      <div class="section-title" style="margin-top:0;">Mijn contracten</div>
+      <div class="table-scroll" style="margin-bottom:8px;">
         <table class="mini-table" id="contractListTable">
           <thead><tr><th><input type="checkbox" id="contractSelAll" title="Alles selecteren" /></th><th>Contract</th><th>Periode</th><th>Saldering</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
       <div class="row-actions">
-        <button class="icon-btn" id="delSelectedBtn">🗑 Geselecteerde verwijderen</button>
-        <span class="hint" style="margin:0;">Klik op een contract om het hieronder te bewerken.</span>
+        <button class="icon-btn" id="delSelectedBtn">🗑 Aangevinkte verwijderen</button>
+        <span class="hint" style="margin:0;">Klik op een contract om het hieronder te bewerken; ✕ verwijdert één contract.</span>
       </div>
 
-      <div class="upload-box" id="pdfDropZone">
-        <strong>Nieuw contract uit PDF</strong><br/>
-        <span style="font-size:0.8rem; color:var(--muted);">Wordt 100% lokaal uitgelezen en als nieuw contract toegevoegd. Controleer daarna de velden.</span>
-        <input type="file" id="pdfFileInput" accept="application/pdf" style="display:none;" />
-        <div class="status-msg" id="pdfStatus"></div>
+      <div class="section-title">Contract toevoegen</div>
+      <div class="add-options">
+        <button class="add-option" id="pdfDropZone" type="button">
+          <span class="ao-icon">📄</span>
+          <span class="ao-title">Uit contract-PDF</span>
+          <span class="ao-text">Je hebt de contractbevestiging of tarievenkaart van je leverancier als PDF. De tarieven worden daaruit gelezen.</span>
+        </button>
+        <button class="add-option" id="importContractsBtn2" type="button">
+          <span class="ao-icon">📦</span>
+          <span class="ao-title">Uit contractbestand (.json)</span>
+          <span class="ao-text">Je hebt een kant-en-klaar contractbestand, bijvoorbeeld <em>historische-contracten.json</em>. Voegt alle contracten in het bestand in één keer toe.</span>
+        </button>
+        <button class="add-option" id="addContractBtn" type="button">
+          <span class="ao-icon">✏️</span>
+          <span class="ao-title">Zelf invullen</span>
+          <span class="ao-text">Je hebt geen bestand. Er komt een nieuw contract bij (een kopie van het geselecteerde) en jij past datums en tarieven aan.</span>
+        </button>
       </div>
+      <input type="file" id="pdfFileInput" accept="application/pdf" style="display:none;" />
+      <div class="status-msg" id="pdfStatus"></div>
+
+      <div class="section-title" id="editTitle">Contract bewerken</div>
 
       <div class="form-grid">
         <div class="field">
@@ -1370,6 +1392,7 @@
     sel.value = selId;
     renderContractList();
     const c = selContract();
+    document.getElementById("editTitle").textContent = "Contract bewerken: " + c.naam;
     Object.entries(CFG_FIELDS).forEach(([k, id]) => { document.getElementById(id).value = c[k] === undefined ? (k === "saldering" ? "auto" : "") : c[k]; });
     document.getElementById("cfgElecOffPeak").disabled = c.tariffType === "single";
     // maandtarieven
@@ -1468,12 +1491,14 @@
   document.getElementById("contractSelect").onchange = ev => { readForm(); selId = ev.target.value; fillForm(); };
   document.getElementById("cfgTariffType").onchange = ev => { document.getElementById("cfgElecOffPeak").disabled = ev.target.value === "single"; };
   ["cfgName", "cfgStart", "cfgEnd", "cfgTermijn"].forEach(id => document.getElementById(id).addEventListener("change", () => { readForm(); fillForm(); }));
+  const scrollToEdit = () => { const el = document.getElementById("editTitle"); if (el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" }); };
   document.getElementById("addContractBtn").onclick = () => {
     readForm();
     const prev = selContract();
     const c = newContract(Object.assign({}, prev, { id: undefined, naam: "Nieuw contract", start: todayKey(), end: "", maandTarieven: {} }));
     c.id = "c" + Date.now().toString(36);
-    draft.push(c); selId = c.id; fillForm();
+    draft.push(c); selId = c.id; fillForm(); scrollToEdit();
+    document.getElementById("pdfStatus").textContent = "Nieuw contract toegevoegd — vul hieronder naam, datums en tarieven in en klik op Opslaan.";
   };
   document.getElementById("delContractBtn").onclick = () => deleteContracts([selId]);
   document.getElementById("delSelectedBtn").onclick = () => {
@@ -1496,7 +1521,7 @@
 
   /* ================= PDF → nieuw contract ================= */
   const pdfInput = document.getElementById("pdfFileInput");
-  document.getElementById("pdfDropZone").onclick = ev => { if (ev.target !== pdfInput) pdfInput.click(); };
+  document.getElementById("pdfDropZone").onclick = () => pdfInput.click();
   pdfInput.onchange = async () => {
     const file = pdfInput.files[0];
     const status = document.getElementById("pdfStatus");
