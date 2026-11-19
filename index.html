@@ -580,6 +580,7 @@
         <select id="contractSelect"></select>
         <button class="icon-btn" id="addContractBtn">＋ Nieuw</button>
         <button class="icon-btn" id="delContractBtn">🗑 Verwijder</button>
+        <button class="icon-btn" id="importContractsBtn2" title="Contracten uit een .json-bestand toevoegen">➕ Importeer</button>
       </div>
 
       <div class="upload-box" id="pdfDropZone">
@@ -1986,6 +1987,7 @@
   /* ================= Contracten toevoegen uit bestand ================= */
   const importContractsInput = document.getElementById("importContractsInput");
   document.getElementById("importContractsBtn").onclick = () => importContractsInput.click();
+  document.getElementById("importContractsBtn2").onclick = () => importContractsInput.click();
   importContractsInput.onchange = async () => {
     const st = document.getElementById("backupStatus");
     try {
@@ -2004,6 +2006,7 @@
       });
       fillForm(); commit(); renderAll();
       st.textContent = "✓ " + added + " contract(en) toegevoegd" + (replaced ? ", " + replaced + " vervangen" : "") + ".";
+      document.getElementById("pdfStatus").textContent = st.textContent;
     } catch (e) { st.textContent = "Fout: " + e.message; }
     finally { importContractsInput.value = ""; }
   };
