@@ -1394,7 +1394,7 @@
     renderContractList();
     const c = selContract();
     document.getElementById("editTitle").textContent = "Contract bewerken: " + c.naam;
-    document.getElementById("autoNameHint").textContent = "Naam wordt automatisch: leverancier + maand en jaar van de start.";
+    document.getElementById("autoNameHint").textContent = "Naam wordt: " + c.naam + (String(c.leverancier || "").trim() ? "" : " — vul de energieleverancier in");
     Object.entries(CFG_FIELDS).forEach(([k, id]) => { document.getElementById(id).value = c[k] === undefined ? (k === "saldering" ? "auto" : "") : c[k]; });
     document.getElementById("cfgElecOffPeak").disabled = c.tariffType === "single";
     // maandtarieven
@@ -1497,11 +1497,12 @@
   document.getElementById("addContractBtn").onclick = () => {
     readForm();
     const prev = selContract();
-    const c = newContract(Object.assign({}, prev, { id: undefined, start: todayKey(), end: "", maandTarieven: {} }));
+    const c = newContract(Object.assign({}, prev, { id: undefined, leverancier: "", start: todayKey(), end: "", maandTarieven: {} }));
     c.naam = autoName(c);
     c.id = "c" + Date.now().toString(36);
     draft.push(c); selId = c.id; fillForm(); scrollToEdit();
-    document.getElementById("pdfStatus").textContent = "Nieuw contract toegevoegd — vul hieronder naam, datums en tarieven in en klik op Opslaan.";
+    document.getElementById("pdfStatus").textContent = "Nieuw contract toegevoegd — vul hieronder de energieleverancier, datums en tarieven in en klik op Opslaan. De naam wordt automatisch gemaakt.";
+    setTimeout(() => document.getElementById("cfgName").focus(), 300);
   };
   document.getElementById("delContractBtn").onclick = () => deleteContracts([selId]);
   document.getElementById("delSelectedBtn").onclick = () => {
@@ -2116,9 +2117,16 @@
     c.naam = autoName(c);
     return c;
   }
-  document.getElementById("cfgName").addEventListener("input", ev => {
+  function updateNameHint() {
     const c = selContract(); if (!c) return;
-    document.getElementById("autoNameHint").textContent = "Naam wordt: " + autoName(Object.assign({}, c, { leverancier: ev.target.value, start: document.getElementById("cfgStart").value || c.start }));
+    const lev = document.getElementById("cfgName").value, start = document.getElementById("cfgStart").value || c.start;
+    const name = autoName(Object.assign({}, c, { leverancier: lev, start }));
+    document.getElementById("autoNameHint").textContent = "Naam wordt: " + name + (lev.trim() ? "" : " — vul de energieleverancier in");
+    document.getElementById("editTitle").textContent = "Contract bewerken: " + name;
+  }
+  ["input", "change"].forEach(t => {
+    document.getElementById("cfgName").addEventListener(t, updateNameHint);
+    document.getElementById("cfgStart").addEventListener(t, updateNameHint);
   });
 
   contracts.forEach(normalizeContract);
