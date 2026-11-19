@@ -757,7 +757,7 @@
     <div class="tab-pane" id="tabTermijn" style="display:none;">
       <div class="hint" id="termijnHint"></div>
       <table class="mini-table" id="termijnTable">
-        <thead><tr><th>Maand</th><th>Termijnbedrag (€)</th></tr></thead>
+        <thead><tr><th>Maand</th><th>Termijnbedrag (€)</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -1047,10 +1047,14 @@
     RATE_FIELDS.forEach(f => { if (m[f] !== null && m[f] !== undefined && m[f] !== "" && isFinite(m[f])) t[f] = +m[f]; });
     return t;
   }
-  function termijnFor(m) {
-    if (termijnen[m] !== undefined && termijnen[m] !== null && termijnen[m] !== "") return +termijnen[m];
-    return +contractFor(m + "-15").termijn || 0;
+  // Termijnbedrag van maand m: de laatste wijziging in of vóór m binnen hetzelfde contract
+  // (een wijziging geldt dus voor alle maanden erna), anders het standaardbedrag van het contract.
+  function effTermijn(m, tmap, list) {
+    const c = contractFor(m + "-15", list), cs = c.start.slice(0, 7);
+    const ks = Object.keys(tmap).filter(k => k >= cs && k <= m && tmap[k] !== "" && tmap[k] !== null && tmap[k] !== undefined).sort();
+    return ks.length ? +tmap[ks[ks.length - 1]] : (+c.termijn || 0);
   }
+  function termijnFor(m) { return effTermijn(m, termijnen, contracts); }
 
   // ---- Saldering ----
   // auto: wettelijke salderingsregeling per (contract)jaar t/m 31-12-2026, daarna per dag
@@ -1614,10 +1618,6 @@
       mt[m] = row;
     });
     c.maandTarieven = mt;
-    document.querySelectorAll("#termijnTable tbody input").forEach(inp => {
-      const n = fieldNum(inp.value);
-      if (n === null) delete draftTermijnen[inp.dataset.m]; else draftTermijnen[inp.dataset.m] = n;
-    });
   }
 
   function fillForm() {
@@ -1665,11 +1665,23 @@
       const tr = document.createElement("tr");
       const td0 = document.createElement("td"); td0.textContent = fmtMonth(m);
       const td1 = document.createElement("td"), inp = document.createElement("input");
-      inp.type = "number"; inp.step = "0.01"; inp.dataset.m = m; inp.placeholder = c.termijn;
-      inp.value = draftTermijnen[m] !== undefined ? draftTermijnen[m] : "";
-      td1.appendChild(inp); tr.appendChild(td0); tr.appendChild(td1); tt.appendChild(tr);
+      inp.type = "number"; inp.step = "0.01"; inp.dataset.m = m;
+      inp.value = +effTermijn(m, draftTermijnen, draft).toFixed(2);
+      const explicit = draftTermijnen[m] !== undefined && draftTermijnen[m] !== null && draftTermijnen[m] !== "";
+      if (explicit) inp.style.fontWeight = "700";
+      inp.onchange = () => {
+        readForm();
+        const v = fieldNum(inp.value);
+        if (v === null) delete draftTermijnen[m]; else draftTermijnen[m] = v;
+        // geldt voor alle volgende maanden van dit contract: latere wijzigingen vervallen
+        Object.keys(draftTermijnen).forEach(k => { if (k > m && k <= endM) delete draftTermijnen[k]; });
+        fillForm();
+      };
+      const td2 = document.createElement("td"); td2.className = "hint"; td2.style.margin = "0";
+      td2.textContent = explicit ? "gewijzigd vanaf hier" : (m === c.start.slice(0, 7) ? "standaard" : "↓ zelfde als vorige maand");
+      td1.appendChild(inp); tr.appendChild(td0); tr.appendChild(td1); tr.appendChild(td2); tt.appendChild(tr);
     }
-    document.getElementById("termijnHint").textContent = "Termijnbedragen voor " + c.naam + ". Lege velden = standaard termijnbedrag (" + euro(c.termijn) + "). Kies een ander contract op het tabblad Contracten.";
+    document.getElementById("termijnHint").textContent = "Termijnbedragen voor " + c.naam + ". Pas je een bedrag aan, dan geldt het nieuwe bedrag voor die maand en alle maanden erna (tot een volgende wijziging). Maak een veld leeg om de wijziging ongedaan te maken. Kies een ander contract op het tabblad Contracten.";
     renderHistTable();
   }
 
