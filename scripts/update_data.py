@@ -124,6 +124,10 @@ def haal_temperaturen(data):
 
 def main():
     api_key = (os.getenv("SMP_API_KEY") or "").strip()
+    # hele regel uit .env geplakt ("SMP_API_KEY=...")? Dan alleen het deel na '=' gebruiken
+    if api_key.upper().startswith("SMP_API_KEY="):
+        api_key = api_key.split("=", 1)[1].strip()
+    api_key = api_key.strip('"').strip("'")
     print(f"API-sleutel: {len(api_key)} tekens")  # alleen de lengte, nooit de sleutel zelf
     if not api_key:
         sys.exit("SMP_API_KEY ontbreekt (GitHub-secret SLIMME_METER_RJE onder Settings > Secrets and variables > Actions).")
