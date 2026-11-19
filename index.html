@@ -429,6 +429,8 @@
     .mini-table th { text-align: left; color: var(--muted); font-weight: 600; padding: 4px; }
     .mini-table td { padding: 3px 4px; border-top: 1px solid var(--border); }
     .mini-table input { width: 100%; min-width: 60px; padding: 5px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.82rem; }
+    #contractListTable tr.sel td { background: var(--elec-soft); }
+    #contractListTable tbody tr { cursor: pointer; }
     .del-btn { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 1rem; }
     textarea.mail-input { width: 100%; min-height: 160px; padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.8rem; font-family: inherit; }
     .chart-note { text-align: center; font-size: 0.8rem; color: var(--muted); margin-top: 4px; display: none; }
@@ -581,6 +583,16 @@
         <button class="icon-btn" id="addContractBtn">＋ Nieuw</button>
         <button class="icon-btn" id="delContractBtn">🗑 Verwijder</button>
         <button class="icon-btn" id="importContractsBtn2" title="Contracten uit een .json-bestand toevoegen">➕ Importeer</button>
+      </div>
+      <div class="table-scroll" style="margin-bottom:10px;">
+        <table class="mini-table" id="contractListTable">
+          <thead><tr><th><input type="checkbox" id="contractSelAll" title="Alles selecteren" /></th><th>Contract</th><th>Periode</th><th>Saldering</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="row-actions">
+        <button class="icon-btn" id="delSelectedBtn">🗑 Geselecteerde verwijderen</button>
+        <span class="hint" style="margin:0;">Klik op een contract om het hieronder te bewerken.</span>
       </div>
 
       <div class="upload-box" id="pdfDropZone">
@@ -1356,6 +1368,7 @@
       sel.appendChild(o);
     });
     sel.value = selId;
+    renderContractList();
     const c = selContract();
     Object.entries(CFG_FIELDS).forEach(([k, id]) => { document.getElementById(id).value = c[k] === undefined ? (k === "saldering" ? "auto" : "") : c[k]; });
     document.getElementById("cfgElecOffPeak").disabled = c.tariffType === "single";
@@ -1395,6 +1408,39 @@
     renderHistTable();
   }
 
+  const SALDERING_LBL = { auto: "automatisch", jaar: "per jaar", dag: "per dag", geen: "geen (dynamisch)" };
+  function renderContractList() {
+    const tb = document.querySelector("#contractListTable tbody");
+    tb.innerHTML = "";
+    draft.slice().sort((a, b) => (a.start < b.start ? 1 : -1)).forEach(c => {
+      const tr = document.createElement("tr");
+      if (c.id === selId) tr.className = "sel";
+      const td0 = document.createElement("td"), cb = document.createElement("input");
+      cb.type = "checkbox"; cb.dataset.id = c.id; cb.onclick = ev => ev.stopPropagation();
+      td0.appendChild(cb); tr.appendChild(td0);
+      [c.naam, fmtDate(c.start) + " – " + (c.end ? fmtDate(c.end) : "heden"), SALDERING_LBL[c.saldering || "auto"] || c.saldering].forEach(v => {
+        const td = document.createElement("td"); td.textContent = v; tr.appendChild(td);
+      });
+      const tdd = document.createElement("td"), del = document.createElement("button");
+      del.className = "del-btn"; del.textContent = "✕"; del.title = "Verwijder dit contract";
+      del.onclick = ev => { ev.stopPropagation(); deleteContracts([c.id]); };
+      tdd.appendChild(del); tr.appendChild(tdd);
+      tr.onclick = () => { readForm(); selId = c.id; fillForm(); };
+      tb.appendChild(tr);
+    });
+    document.getElementById("contractSelAll").checked = false;
+  }
+  function deleteContracts(ids) {
+    if (!ids.length) return;
+    if (ids.length >= draft.length) { alert("Er moet minimaal één contract blijven."); return; }
+    const names = draft.filter(c => ids.includes(c.id)).map(c => c.naam);
+    if (!confirm((ids.length === 1 ? "Contract verwijderen: " : ids.length + " contracten verwijderen:\n") + names.join("\n") + "\n\nWordt pas definitief na 'Opslaan & Berekenen'.")) return;
+    readForm();
+    draft = draft.filter(c => !ids.includes(c.id));
+    if (!draft.some(c => c.id === selId)) selId = draft[0].id;
+    fillForm();
+  }
+
   function openModal() {
     draft = clone(contracts); draftTermijnen = clone(termijnen);
     selId = contractFor(ALL_DATES.length ? ALL_DATES[ALL_DATES.length - 1] : todayKey(), draft).id;
@@ -1429,11 +1475,14 @@
     c.id = "c" + Date.now().toString(36);
     draft.push(c); selId = c.id; fillForm();
   };
-  document.getElementById("delContractBtn").onclick = () => {
-    if (draft.length <= 1) { alert("Er moet minimaal één contract blijven."); return; }
-    const c = selContract();
-    if (!confirm("Contract '" + c.naam + "' verwijderen?")) return;
-    draft = draft.filter(x => x.id !== selId); selId = draft[0].id; fillForm();
+  document.getElementById("delContractBtn").onclick = () => deleteContracts([selId]);
+  document.getElementById("delSelectedBtn").onclick = () => {
+    const ids = [...document.querySelectorAll("#contractListTable tbody input[type=checkbox]:checked")].map(x => x.dataset.id);
+    if (!ids.length) { alert("Vink eerst de contracten aan die je wilt verwijderen."); return; }
+    deleteContracts(ids);
+  };
+  document.getElementById("contractSelAll").onchange = ev => {
+    document.querySelectorAll("#contractListTable tbody input[type=checkbox]").forEach(x => x.checked = ev.target.checked);
   };
   document.getElementById("addTariffMonthBtn").onclick = () => {
     const m = document.getElementById("newTariffMonth").value;
