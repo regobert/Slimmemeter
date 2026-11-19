@@ -453,6 +453,8 @@
     .cost-details summary { cursor: pointer; color: var(--accent); font-weight: 600; margin-bottom: 4px; }
     .cost-details td.num { text-align: right; white-space: nowrap; }
     .cost-details tr.tot td { font-weight: 700; }
+    .cost-details tr.sub td { color: var(--muted); font-size: 0.74rem; padding-top: 8px; font-weight: 700; }
+    .cost-details td.pos { color: var(--gas); font-weight: 700; } .cost-details td.neg { color: var(--elec); font-weight: 700; }
     .add-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
     .add-option { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; padding: 10px 12px;
       border: 1px solid var(--border); border-radius: 12px; background: var(--bg); color: var(--text); cursor: pointer; font: inherit; }
@@ -524,8 +526,13 @@
           </div>
         </div>
 
-        <details class="cost-details" id="costDetails">
+        <details class="cost-details" id="costDetails" open>
           <summary>Kostenopbouw</summary>
+          <div class="seg-group" id="costScope" style="margin:4px 0 6px;">
+            <button class="seg-btn active" data-s="jaar" type="button">Lopend contractjaar</button>
+            <button class="seg-btn" data-s="periode" type="button">Gekozen periode</button>
+          </div>
+          <div class="hint" id="costScopeInfo" style="margin:0 0 4px;"></div>
           <table class="mini-table" id="costTable"><tbody></tbody></table>
         </details>
 
@@ -546,6 +553,7 @@
             <div>Verwacht jaarbedrag: <strong id="yearForecastEuro">€ 0</strong></div>
             <div>Termijnbedrag: <strong id="termijnLbl">-</strong></div>
             <div style="margin-top:6px;"><span class="badge ok" id="forecastBadge">Op schema</span></div>
+            <div class="hint" id="forecastBasis" style="margin:4px 0 0;"></div>
           </div>
         </div>
       </div>
@@ -1231,71 +1239,160 @@
     document.getElementById("gasSub").innerHTML = "Verbruik: " + nf1.format(r.gasM3) + " m³<br>Gem. temp: " + (r.temp !== null ? nf1.format(r.temp) : "-") + " °C";
     document.getElementById("totalEuro").innerHTML = euro(r.elec + r.gas + r.fixed) + est;
     const days = Math.round(r.days);
-    const ks = partsIn(s, e, withHist()).map(p => contractFor(p.key).naam);
-    const names = [...new Set(ks)];
-    const rows = [
-      ["Stroom levering (" + nf0.format(r.afn) + " kWh)", r.supply],
-      ["Teruglevering / saldering (" + nf0.format(r.ret) + " kWh)", r.credit],
-      ["Terugleverkosten", r.fcost],
-      ["Gas (" + nf0.format(r.gasM3) + " m³)", r.gas],
-      ["Vaste leveringskosten", r.fSupply],
-      ["Netbeheerkosten", r.fGrid],
-      ["Vermindering energiebelasting", r.fTax],
-      ["Totaal", r.elec + r.gas + r.fixed]
-    ];
-    const ctb = document.querySelector("#costTable tbody"); ctb.innerHTML = "";
-    rows.forEach(([l, v], i) => {
-      const tr = document.createElement("tr"); if (i === rows.length - 1) tr.className = "tot";
-      const a = document.createElement("td"); a.textContent = l;
-      const b = document.createElement("td"); b.className = "num"; b.textContent = euro(v);
-      tr.appendChild(a); tr.appendChild(b); ctb.appendChild(tr);
-    });
+    lastPeriodSum = r;
     document.getElementById("fixedBreakdown").innerHTML =
       "Vaste kosten (" + days + " " + (days === 1 ? "dag" : "dagen") + "): " + euro(r.fixed) +
-      "<br>" + (names.length ? names.join(" + ") : "") +
       (r.monthly ? "<br>≈ deels o.b.v. maandtotalen" : r.est ? "<br>≈ buiten contractperiode" : "");
   }
 
-  /* ================= Jaarvoorspelling ================= */
-  function renderForecast() {
+  /* ================= Lopend contractjaar & jaarvoorspelling ================= */
+  // Verwacht verbruik per kalendermaand: gemiddelde van volledige maanden sinds de warmtepomp
+  // (of de laatste 3 jaar als die datum niet is ingesteld).
+  function expectedMonthly(ref) {
+    const from = wpStart || addMonths(ref, -36).slice(0, 7);
+    const acc = {};
+    allMonths().forEach(m => {
+      if (m < from || m > ref.slice(0, 7)) return;
+      const t = monthTotals(m); if (!t || !t.complete) return;
+      const mi = +m.slice(5) - 1; acc[mi] = acc[mi] || { afn: 0, ret: 0, gas: 0, n: 0 };
+      acc[mi].afn += t.afn; acc[mi].ret += t.ret; acc[mi].gas += t.gas; acc[mi].n++;
+    });
+    const out = {};
+    Object.keys(acc).forEach(mi => { const a = acc[mi]; out[mi] = { afn: a.afn / a.n, ret: a.ret / a.n, gas: a.gas / a.n, n: a.n }; });
+    return { from, months: out };
+  }
+  // Welk deel van min(afname, teruglevering) per maand ook binnen dezelfde dag wegvalt (voor saldering per dag)
+  function dailyNettingK() {
+    let num = 0, den = 0;
+    [...DAILY_MONTHS].forEach(m => {
+      const ks = ALL_DATES.filter(k => k.startsWith(m)); let A = 0, R = 0;
+      ks.forEach(k => { const d = DAY[k], a = d.afnHigh + d.afnLow, r = d.retHigh + d.retLow; A += a; R += r; num += Math.min(a, r); });
+      den += Math.min(A, R);
+    });
+    return den > 0 ? Math.min(1, num / den) : 0.35;
+  }
+
+  function contractYear() {
     const ref = ALL_DATES.length ? ALL_DATES[ALL_DATES.length - 1] : dataBounds()[1];
     const c = contractFor(ref);
-    const cs = c.start, ce = addDays(addMonths(cs, 12), -1);
-    let parts = partsIn(cs, ce < ref ? ce : ref, true);
-    if (!parts.length) parts = partsIn(addDays(ref, -364), ref, true);
-    let elec = 0, gas = 0, wE = 0, wG = 0;
-    parts.forEach(p => {
-      const mi = toDate(p.key).getUTCMonth(), frac = p.days / daysInMonth(p.key);
-      elec += p.elec; gas += p.gas;
-      wE += ELEC_NET_WEIGHTS[mi] * frac; wG += GAS_MONTH_WEIGHTS[mi] * frac;
+    let cs = c.start;
+    while (addMonths(cs, 12) <= ref) cs = addMonths(cs, 12);       // lopend contractjaar
+    const ce = addDays(addMonths(cs, 12), -1);
+    const actual = sumParts(partsIn(cs, ref < ce ? ref : ce, true));
+    const exp = expectedMonthly(ref), k = dailyNettingK();
+    // resterende dagen per maand na 'ref'
+    const rest = [];
+    for (let m = cs.slice(0, 7); m <= ce.slice(0, 7); m = addMonths(m + "-01", 1).slice(0, 7)) {
+      const ms = m + "-01" < cs ? cs : m + "-01", me = monthEnd(m) > ce ? ce : monthEnd(m);
+      const from = addDays(ref, 1) > ms ? addDays(ref, 1) : ms;
+      if (from > me) continue;
+      const days = daysBetween(from, me) + 1, frac = days / daysInMonth(m + "-01");
+      const e = exp.months[+m.slice(5) - 1];
+      rest.push({ m, days, v: e ? { afn: e.afn * frac, ret: e.ret * frac, gas: e.gas * frac } : null, key: from });
+    }
+    // saldering per jaar: verwachte volumes per verrekenperiode erbij tellen
+    const win = {};
+    rest.forEach(r => {
+      if (!r.v || salderingMode(c, r.key) !== "jaar") return;
+      const [ws, we] = settleWindow(c, r.key), id = ws + "|" + we;
+      if (!win[id]) { const v = volumesIn(ws, ref < we ? ref : we); win[id] = { afn: v.afn, ret: v.ret }; }
+      win[id].afn += r.v.afn; win[id].ret += r.v.ret;
     });
-    let fixedYear = 0;
-    for (let k = cs; k <= ce; k = addDays(k, 1)) fixedYear += fixedDay(tariffsFor(k));
-    const year = (wE > 0 ? elec / wE : 0) + (wG > 0 ? gas / wG : 0) + fixedYear;
-    const month = year / 12;
-    let termijnYear = 0;
-    for (let i = 0; i < 12; i++) termijnYear += termijnFor(addMonths(cs, i).slice(0, 7));
-    const termijnAvg = termijnYear / 12;
-    const diffYear = termijnYear - year;
-    const days = Math.round(parts.reduce((a, p) => a + p.days, 0));
+    const est = { supply: 0, credit: 0, fcost: 0, gas: 0, fSupply: 0, fGrid: 0, fTax: 0, afn: 0, ret: 0, gasM3: 0, missing: 0 };
+    rest.forEach(r => {
+      const t = tariffsFor(r.key), fx = fixedParts(t, r.days);
+      est.fSupply += fx.fSupply; est.fGrid += fx.fGrid; est.fTax += fx.fTax;
+      if (!r.v) { est.missing++; return; }
+      const mode = salderingMode(c, r.key);
+      const p = t.tariffType === "single" ? +t.elecPeak : (+t.elecPeak + +t.elecOffPeak) / 2, feed = +t.feedInRate;
+      let credit;
+      if (mode === "geen") credit = -r.v.ret * feed;
+      else if (mode === "jaar") { const [ws, we] = settleWindow(c, r.key), w = win[ws + "|" + we]; const f = w && w.ret > w.afn ? w.afn / w.ret : 1; credit = -r.v.ret * (f * p + (1 - f) * feed); }
+      else { const n = k * Math.min(r.v.afn, r.v.ret); credit = -(n * p + (r.v.ret - n) * feed); }
+      est.supply += r.v.afn * p; est.credit += credit; est.fcost += r.v.ret * (+t.feedInCost || 0);
+      est.gas += r.v.gas * t.gasRate; est.afn += r.v.afn; est.ret += r.v.ret; est.gasM3 += r.v.gas;
+    });
+    est.total = est.supply + est.credit + est.fcost + est.gas + est.fSupply + est.fGrid + est.fTax;
+    const actualTotal = actual.elec + actual.gas + actual.fixed;
+    // termijnen: hele jaar en naar rato tot en met 'ref'
+    let termijnYear = 0, termijnToDate = 0;
+    for (let i = 0; i < 12; i++) {
+      const m = addMonths(cs, i).slice(0, 7), t = termijnFor(m); termijnYear += t;
+      const ms = m + "-01" < cs ? cs : m + "-01", me = monthEnd(m);
+      if (ms <= ref) termijnToDate += t * (daysBetween(ms, me < ref ? me : ref) + 1) / daysInMonth(m + "-01");
+    }
+    return { c, cs, ce, ref, actual, actualTotal, est, year: actualTotal + est.total, termijnYear, termijnToDate, exp, k };
+  }
 
-    document.getElementById("contractStartLbl").textContent = fmtDate(cs);
-    document.getElementById("yearForecastEuro").textContent = euro0(year);
-    const curT = termijnFor(ref.slice(0, 7));
+  let costScope = "jaar", lastPeriodSum = null;
+  function renderCostTable() {
+    const ctb = document.querySelector("#costTable tbody"); ctb.innerHTML = "";
+    const row = (l, v, cls, tdCls) => {
+      const tr = document.createElement("tr"); if (cls) tr.className = cls;
+      const a = document.createElement("td"); a.textContent = l; tr.appendChild(a);
+      const b = document.createElement("td"); b.className = "num" + (tdCls ? " " + tdCls : ""); b.textContent = v === null ? "" : euro(v); tr.appendChild(b);
+      ctb.appendChild(tr);
+    };
+    const comp = (r, label) => {
+      row("Stroom levering (" + nf0.format(r.afn) + " kWh)", r.supply);
+      row("Teruglevering / saldering (" + nf0.format(r.ret) + " kWh)", r.credit);
+      if (Math.abs(r.fcost) > 0.005) row("Terugleverkosten", r.fcost);
+      row("Gas (" + nf0.format(r.gasM3) + " m³)", r.gas);
+      row("Vaste leveringskosten", r.fSupply);
+      row("Netbeheerkosten", r.fGrid);
+      row("Vermindering energiebelasting", r.fTax);
+      row(label, r.elec + r.gas + r.fixed, "tot");
+    };
+    if (costScope === "periode") {
+      document.getElementById("costScopeInfo").textContent = "Periode: " + document.getElementById("periodLabel").textContent;
+      if (lastPeriodSum) comp(lastPeriodSum, "Totaal");
+      return;
+    }
+    const y = contractYear();
+    document.getElementById("costScopeInfo").textContent = y.c.naam + " · contractjaar " + fmtDate(y.cs) + " – " + fmtDate(y.ce) + " · gegevens t/m " + fmtDate(y.ref);
+    comp(y.actual, "Kosten tot nu");
+    row("Betaalde termijnen tot nu (naar rato)", -y.termijnToDate);
+    const saldo = y.actualTotal - y.termijnToDate;
+    row(saldo > 0 ? "Tot nu te weinig betaald" : "Tot nu te veel betaald", Math.abs(saldo), "tot", saldo > 0 ? "pos" : "neg");
+    row("Verwachting hele contractjaar", null, "sub");
+    row("Verwachte kosten rest van het jaar", y.est.total);
+    row("Verwacht jaarbedrag", y.year, "tot");
+    row("Termijnbedragen hele jaar", -y.termijnYear);
+    const d = y.termijnYear - y.year;
+    row(d >= 0 ? "Verwacht terug te krijgen" : "Verwacht bij te betalen", Math.abs(d), "tot", d >= 0 ? "neg" : "pos");
+  }
+  document.querySelectorAll("#costScope .seg-btn").forEach(btn => {
+    btn.onclick = () => {
+      costScope = btn.dataset.s;
+      document.querySelectorAll("#costScope .seg-btn").forEach(b => b.classList.toggle("active", b === btn));
+      renderCostTable();
+    };
+  });
+
+  function renderForecast() {
+    const y = contractYear();
+    const month = y.year / 12, termijnAvg = y.termijnYear / 12, diffYear = y.termijnYear - y.year;
+    document.getElementById("contractStartLbl").textContent = fmtDate(y.cs);
+    document.getElementById("yearForecastEuro").textContent = euro0(y.year);
+    const curT = termijnFor(y.ref.slice(0, 7));
     document.getElementById("termijnLbl").textContent = euro0(curT) + "/mnd" + (Math.abs(curT - termijnAvg) > 0.5 ? " (gem. " + euro0(termijnAvg) + ")" : "");
     document.getElementById("ringEuro").textContent = euro0(month);
-
-    const ratio = termijnAvg > 0 ? month / termijnAvg : 0;
     const ring = document.getElementById("ringProgress");
-    ring.setAttribute("stroke-dashoffset", (251.3 * (1 - Math.min(ratio, 1))).toFixed(1));
+    ring.setAttribute("stroke-dashoffset", (251.3 * (1 - Math.min(termijnAvg > 0 ? month / termijnAvg : 0, 1))).toFixed(1));
     const badge = document.getElementById("forecastBadge");
-    if (!parts.length) {
+    const nHist = Object.keys(y.exp.months).length;
+    if (!nHist && !y.actual.days) {
       badge.className = "badge warn"; badge.textContent = "Nog geen data"; ring.setAttribute("stroke", "var(--muted)");
     } else if (diffYear >= 0) {
-      badge.className = "badge ok"; badge.textContent = "Terug: ~" + euro0(diffYear) + " (" + days + " dgn data)"; ring.setAttribute("stroke", "var(--elec)");
+      badge.className = "badge ok"; badge.textContent = "Terug: ~" + euro0(diffYear); ring.setAttribute("stroke", "var(--elec)");
     } else {
-      badge.className = "badge warn"; badge.textContent = "Bijbetalen: ~" + euro0(-diffYear) + " (" + days + " dgn data)"; ring.setAttribute("stroke", "var(--gas)");
+      badge.className = "badge warn"; badge.textContent = "Bijbetalen: ~" + euro0(-diffYear); ring.setAttribute("stroke", "var(--gas)");
     }
+    const fromLbl = MONTHS_SHORT[+y.exp.from.slice(5, 7) - 1] + " " + y.exp.from.slice(0, 4);
+    document.getElementById("forecastBasis").textContent =
+      "Werkelijke kosten t/m " + fmtDate(y.ref) + " + verwacht verbruik o.b.v. gemiddelde per maand sinds " + fromLbl +
+      (y.est.missing ? " (" + y.est.missing + " maand(en) zonder historie)" : "") + ", tegen de tarieven van dit contract.";
+    renderCostTable();
   }
 
   /* ================= Render ================= */
