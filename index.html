@@ -468,6 +468,9 @@
     .ao-text { font-size: 0.76rem; color: var(--muted); line-height: 1.3; }
     .app-version { font-size: 0.66rem; color: var(--muted); align-self: flex-end; margin-bottom: 2px; }
     .modal-head .head-actions { display: flex; gap: 6px; }
+    .unit-input { display: flex; gap: 6px; }
+    .unit-input input { flex: 1; min-width: 0; }
+    .unit-input select { width: auto; flex: none; }
   </style>
 </head>
 <body>
@@ -713,16 +716,28 @@
           <input type="number" step="0.01" id="cfgTermijn" />
         </div>
         <div class="field">
-          <label>Vaste leveringskosten stroom + gas (€ / dag)</label>
-          <input type="number" step="0.0001" id="cfgFixedSupplyDay" />
+          <label>Vaste leveringskosten stroom + gas (€, incl. btw)</label>
+          <div class="unit-input">
+            <input type="number" step="0.0001" id="cfgFixedSupplyDay" />
+            <select class="unit-sel" data-for="cfgFixedSupplyDay"><option value="dag">per dag</option><option value="maand">per maand</option><option value="jaar">per jaar</option></select>
+          </div>
+          <div class="hint unit-hint" data-for="cfgFixedSupplyDay" style="margin:2px 0 0;"></div>
         </div>
         <div class="field">
-          <label>Netbeheerkosten stroom + gas (€ / dag)</label>
-          <input type="number" step="0.0001" id="cfgGridDay" />
+          <label>Netbeheerkosten stroom + gas (€, incl. btw)</label>
+          <div class="unit-input">
+            <input type="number" step="0.0001" id="cfgGridDay" />
+            <select class="unit-sel" data-for="cfgGridDay"><option value="dag">per dag</option><option value="maand">per maand</option><option value="jaar">per jaar</option></select>
+          </div>
+          <div class="hint unit-hint" data-for="cfgGridDay" style="margin:2px 0 0;"></div>
         </div>
         <div class="field">
-          <label>Vermindering energiebelasting (€ / dag, negatief)</label>
-          <input type="number" step="0.0001" id="cfgTaxCreditDay" />
+          <label>Vermindering energiebelasting (€, negatief)</label>
+          <div class="unit-input">
+            <input type="number" step="0.0001" id="cfgTaxCreditDay" />
+            <select class="unit-sel" data-for="cfgTaxCreditDay"><option value="dag">per dag</option><option value="maand">per maand</option><option value="jaar">per jaar</option></select>
+          </div>
+          <div class="hint unit-hint" data-for="cfgTaxCreditDay" style="margin:2px 0 0;"></div>
         </div>
       </div>
 
@@ -1553,12 +1568,42 @@
   const clone = o => JSON.parse(JSON.stringify(o));
   const selContract = () => draft.find(c => c.id === selId);
 
+  // Vaste kosten: invoer per dag, maand of jaar; intern altijd per dag
+  const UNIT_FIELDS = { fixedSupplyDay: "cfgFixedSupplyDay", gridDay: "cfgGridDay", taxCreditDay: "cfgTaxCreditDay" };
+  const UNIT_FACTOR = { dag: 1, maand: 12 / 365, jaar: 1 / 365 };  // waarde in eenheid × factor = per dag
+  let units = LS.get("energie_units_v1", {});
+  const unitOf = id => units[id] || "dag";
+  const showUnitValue = (id, perDay) => {
+    const u = unitOf(id), el = document.getElementById(id);
+    el.value = perDay === "" || perDay === undefined || perDay === null ? "" : +(perDay / UNIT_FACTOR[u]).toFixed(u === "dag" ? 5 : 2);
+    updateUnitHint(id);
+  };
+  function updateUnitHint(id) {
+    const u = unitOf(id), n = fieldNum(document.getElementById(id).value), h = document.querySelector('.unit-hint[data-for="' + id + '"]');
+    if (!h) return;
+    h.textContent = n === null ? "" : (u === "dag" ? "= " + euro(n * 365) + " per jaar" : "= € " + nf2.format(n * UNIT_FACTOR[u]).replace(/,(\d\d)$/, ",$1") + " per dag (" + (n * UNIT_FACTOR[u]).toFixed(4).replace(".", ",") + ")");
+  }
+  document.querySelectorAll(".unit-sel").forEach(sel => {
+    sel.value = unitOf(sel.dataset.for);
+    sel.addEventListener("change", () => {
+      const id = sel.dataset.for, el = document.getElementById(id), n = fieldNum(el.value);
+      const perDay = n === null ? null : n * UNIT_FACTOR[unitOf(id)];
+      units[id] = sel.value; LS.set("energie_units_v1", units);
+      showUnitValue(id, perDay);
+    });
+    document.getElementById(sel.dataset.for).addEventListener("input", () => updateUnitHint(sel.dataset.for));
+  });
+
   function readForm() {
     const c = selContract(); if (!c) return;
     Object.entries(CFG_FIELDS).forEach(([k, id]) => {
       const v = document.getElementById(id).value;
       if (TEXT_FIELDS.includes(k)) c[k] = v;
       else { const n = fieldNum(v); c[k] = n === null ? TARIFF_DEFAULTS[k] : n; }
+    });
+    Object.entries(UNIT_FIELDS).forEach(([k, id]) => {
+      const n = fieldNum(document.getElementById(id).value);
+      c[k] = n === null ? TARIFF_DEFAULTS[k] : +(n * UNIT_FACTOR[unitOf(id)]).toFixed(6);
     });
     if (!c.start) c.start = todayKey();
     c.naam = autoName(c);
@@ -1591,6 +1636,7 @@
     document.getElementById("autoNameHint").textContent = "Naam wordt: " + c.naam + (String(c.leverancier || "").trim() ? "" : " — vul de energieleverancier in");
     Object.entries(CFG_FIELDS).forEach(([k, id]) => { document.getElementById(id).value = c[k] === undefined ? (k === "saldering" ? "auto" : "") : c[k]; });
     document.getElementById("cfgElecOffPeak").disabled = c.tariffType === "single";
+    Object.entries(UNIT_FIELDS).forEach(([k, id]) => showUnitValue(id, c[k]));
     // maandtarieven
     const tb = document.querySelector("#monthTariffTable tbody");
     tb.innerHTML = "";
