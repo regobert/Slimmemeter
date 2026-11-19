@@ -817,7 +817,7 @@
     </div>
 
     <div class="section-title">Warmtepomp (Remeha)</div>
-    <div class="hint" id="hpHint">Dagwaarden uit de Remeha Home-app. Warmtepomp = stroom, cv-ketel = gas (1 m³ ≈ 9,77 kWh). COP = geleverde warmte ÷ verbruikte stroom.</div>
+    <div class="hint" id="hpHint">Dagwaarden uit de Remeha Home-app. Warmtepomp = stroom, cv-ketel = gas (1 m³ ≈ 9,77 kWh; Remeha schat het ketelgas ca. 5–10% hoger dan de gasmeter). Ketelwarmte = totale warmte − warmtepomp. COP = geleverde warmte ÷ verbruikte stroom. Tot maart 2024 gaf Remeha alleen totalen (niet gesplitst).</div>
     <div class="ins-summary" id="hpSummary"></div>
     <div class="ins-chart"><canvas id="hpChart"></canvas></div>
     <div class="table-scroll">
@@ -2319,11 +2319,17 @@
     const M = {};
     Object.keys(REMEHA).forEach(k => {
       const m = k.slice(0, 7), d = REMEHA[k];
-      M[m] = M[m] || { wpIn: 0, wpUit: 0, ketelIn: 0, ketelUit: 0, ketelWw: 0, days: 0 };
+      M[m] = M[m] || { wpIn: 0, wpUit: 0, ketelIn: 0, ketelUit: 0, ketelWw: 0, totIn: 0, totUit: 0, ongesplitst: 0, days: 0 };
       const x = M[m];
-      x.wpIn += d.wp_in || 0; x.wpUit += d.wp_uit || 0;
-      x.ketelIn += d.ketel_in || 0; x.ketelUit += d.ketel_uit || 0; x.ketelWw += d.ketel_ww_in || 0; x.days++;
+      const split = (d.wp_in || d.wp_uit || d.ketel_in || d.ketel_uit);
+      if (split) {
+        x.wpIn += d.wp_in || 0; x.wpUit += d.wp_uit || 0; x.ketelIn += d.ketel_in || 0;
+        // de cv-ketel meldt zijn geleverde warmte niet: totaal geleverd − warmtepomp
+        x.ketelUit += d.ketel_uit || Math.max(0, (d.uit || 0) - (d.wp_uit || 0));
+      } else if (d.in || d.uit) x.ongesplitst += d.uit || 0;
+      x.ketelWw += d.ketel_ww_in || 0; x.totIn += d.in || 0; x.totUit += d.uit || 0; x.days++;
     });
+    Object.values(M).forEach(x => { x.split = x.wpIn + x.ketelIn > 0; });
     return M;
   }
   function renderHeatpump(T) {
@@ -2348,7 +2354,7 @@
     const seasons = {};
     months.forEach(m => { const y = seasonOf(m); if (y !== null) (seasons[y] = seasons[y] || []).push(m); });
     const ys = Object.keys(seasons).map(Number).sort();
-    const lastFull = ys.filter(y => seasons[y].length === 7).pop();
+    const lastFull = ys.filter(y => seasons[y].length === 7 && seasons[y].every(m => M[m].split || !M[m].totUit)).pop();
     const current = ys[ys.length - 1];
     [[lastFull, "stookseizoen " + lastFull + "/" + String(lastFull + 1).slice(2)], [current !== lastFull ? current : null, "lopend seizoen " + current + "/" + String(current + 1).slice(2)]].forEach(([y, lbl]) => {
       if (y === null || y === undefined) return;
@@ -2366,6 +2372,7 @@
         data: { labels: last.map(m => MONTHS_SHORT[+m.slice(5) - 1] + " '" + m.slice(2, 4)), datasets: [
           { type: "bar", label: "Warmte warmtepomp (kWh)", data: last.map(m => +M[m].wpUit.toFixed(1)), backgroundColor: cssVar("--elec"), stack: "w", yAxisID: "y", order: 2 },
           { type: "bar", label: "Warmte cv-ketel (kWh)", data: last.map(m => +M[m].ketelUit.toFixed(1)), backgroundColor: cssVar("--gas"), stack: "w", yAxisID: "y", order: 2 },
+          ...(last.some(m => M[m].ongesplitst > 0) ? [{ type: "bar", label: "Warmte, niet gesplitst (kWh)", data: last.map(m => +M[m].ongesplitst.toFixed(1)), backgroundColor: cssVar("--muted"), stack: "w", yAxisID: "y", order: 2 }] : []),
           { type: "line", label: "COP warmtepomp", data: last.map(m => M[m].wpIn > 0 ? +(M[m].wpUit / M[m].wpIn).toFixed(2) : null), borderColor: cssVar("--temp"), backgroundColor: cssVar("--temp"), borderDash: [5, 4], borderWidth: 1.5, pointRadius: 2, spanGaps: true, yAxisID: "y1", order: 1 }
         ] },
         options: { responsive: true, maintainAspectRatio: false, animation: { duration: 200 }, interaction: { mode: "index", intersect: false },
@@ -2379,8 +2386,12 @@
     months.slice().reverse().forEach(m => {
       const x = M[m], heat = x.wpUit + x.ketelUit, afn = T[m] ? T[m].afn : 0;
       const tr = document.createElement("tr");
-      [fmtMonth(m), fmt0(x.wpIn), fmt0(x.wpUit), cop(x.wpUit / x.wpIn), nf1.format((x.ketelIn + x.ketelWw) / GAS_KWH_PER_M3), fmt0(x.ketelUit),
-       heat > 0 ? pct(x.wpUit / heat) : "–", afn > 0 ? pct(x.wpIn / afn) : "–"].forEach((v, i) => {
+      const cells = !x.split && x.totUit > 0
+        ? [fmtMonth(m) + " (niet gesplitst)", "–", "–", "–", "–", "–", "–", "–"]
+        : [fmtMonth(m), fmt0(x.wpIn), fmt0(x.wpUit), cop(x.wpUit / x.wpIn), nf1.format((x.ketelIn + x.ketelWw) / GAS_KWH_PER_M3), fmt0(x.ketelUit),
+           heat > 0 ? pct(x.wpUit / heat) : "–", afn > 0 ? pct(x.wpIn / afn) : "–"];
+      if (!x.split && x.totUit > 0) tr.title = "Remeha gaf voor deze maand alleen totalen: " + fmt0(x.totUit) + " kWh warmte uit " + fmt0(x.totIn) + " kWh energie";
+      cells.forEach((v, i) => {
         const td = document.createElement("td"); td.textContent = v; if (i) td.className = "num"; tr.appendChild(td);
       });
       tb.appendChild(tr);
