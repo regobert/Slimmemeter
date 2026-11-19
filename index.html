@@ -637,3 +637,482 @@
     document.getElementById("themeToggleBtn").textContent = nxt === "dark" ? "☀️ Licht" : "🌙 Donker";
     renderAll();
   };
+  /* ================= Hulpfuncties ================= */
+  const MONTHS_SHORT = ["jan","feb","mrt","apr","mei","jun","jul","aug","sep","okt","nov","dec"];
+  const MONTHS_LONG = ["januari","februari","maart","april","mei","juni","juli","augustus","september","oktober","november","december"];
+  const DAYS_SHORT = ["zo","ma","di","wo","do","vr","za"];
+
+  // "22.548,44" -> 22548.44 ; null / "-" / "" -> null
+  function num(v) {
+    if (v === null || v === undefined) return null;
+    if (typeof v === "number") return isFinite(v) ? v : null;
+    const s = String(v).trim();
+    if (s === "" || s === "-") return null;
+    const n = parseFloat(s.replace(/\./g, "").replace(",", "."));
+    return isFinite(n) ? n : null;
+  }
+  const z = v => num(v) || 0;
+
+  // Tijdstempel is het EINDE van het interval ("01-10-2026 00:15:00" = 00:00-00:15).
+  // Geeft het uur (0-23) binnen de dag waarin het interval valt.
+  function hourOfEnd(t) {
+    const m = /(\d{2}):(\d{2})/.exec(String(t || "").split(" ")[1] || "");
+    if (!m) return 0;
+    let mins = (+m[1]) * 60 + (+m[2]);
+    if (mins === 0) mins = 1440;
+    return Math.min(23, Math.floor((mins - 1) / 60));
+  }
+
+  const toDate = s => { const [y, m, d] = s.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d)); };
+  const toKey = d => d.toISOString().slice(0, 10);
+  const addDays = (s, n) => { const d = toDate(s); d.setUTCDate(d.getUTCDate() + n); return toKey(d); };
+  const addMonths = (s, n) => { const d = toDate(s); const day = d.getUTCDate(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + n); const dim = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate(); d.setUTCDate(Math.min(day, dim)); return toKey(d); };
+  const daysBetween = (a, b) => Math.round((toDate(b) - toDate(a)) / 86400000);
+  const daysInMonth = s => { const d = toDate(s); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate(); };
+  const fmtDate = s => { const d = toDate(s); return d.getUTCDate() + " " + MONTHS_SHORT[d.getUTCMonth()] + " " + d.getUTCFullYear(); };
+
+  const nf1 = new Intl.NumberFormat("nl-NL", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const nf2 = new Intl.NumberFormat("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const nf0 = new Intl.NumberFormat("nl-NL", { maximumFractionDigits: 0 });
+  const euro = v => "€ " + nf2.format(isFinite(v) ? v : 0);
+  const euro0 = v => "€ " + nf0.format(isFinite(v) ? v : 0);
+
+  /* ================= Dagaggregatie ================= */
+  const DAY = {};
+  ALL_DATES.forEach(key => {
+    const raw = RAW_DATA[key] || {};
+    const d = {
+      afnHigh: 0, afnLow: 0, retHigh: 0, retLow: 0, gas: 0,
+      hAfn: new Array(24).fill(0), hRet: new Array(24).fill(0), hGas: new Array(24).fill(0),
+      hTemp: new Array(24).fill(null), temp: null
+    };
+    (raw.elektriciteit || []).forEach(r => {
+      const h = hourOfEnd(r.time);
+      const ah = z(r.delivery_high), al = z(r.delivery_low);
+      const rh = z(r.returned_delivery_high), rl = z(r.returned_delivery_low);
+      d.afnHigh += ah; d.afnLow += al; d.retHigh += rh; d.retLow += rl;
+      d.hAfn[h] += ah + al; d.hRet[h] += rh + rl;
+    });
+    const meterTemps = new Array(24).fill(null);
+    (raw.gas || []).forEach(r => {
+      const h = hourOfEnd(r.time);
+      const g = z(r.delivery);
+      d.gas += g; d.hGas[h] += g;
+      const t = num(r.temperature);
+      if (t !== null) meterTemps[h] = t;
+    });
+    (raw.elektriciteit || []).forEach(r => {
+      const t = num(r.temperature);
+      if (t !== null && meterTemps[hourOfEnd(r.time)] === null) meterTemps[hourOfEnd(r.time)] = t;
+    });
+    // Open-Meteo eerst, aangevuld met temperatuur uit de slimme meter
+    const uren = (raw.temp && raw.temp.uren) || {};
+    for (let h = 0; h < 24; h++) {
+      const t = num(uren[h] !== undefined ? uren[h] : uren[String(h)]);
+      d.hTemp[h] = t !== null ? t : meterTemps[h];
+    }
+    const g = raw.temp ? num(raw.temp.gemiddeld) : null;
+    const valid = d.hTemp.filter(t => t !== null);
+    d.temp = g !== null ? g : (valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : null);
+    DAY[key] = d;
+  });
+
+  /* ================= Kosten (dagelijkse saldering) ================= */
+  function dayCost(d) {
+    const afn = d.afnHigh + d.afnLow;
+    const ret = d.retHigh + d.retLow;
+    const net = afn - ret;
+    let elec = 0;
+    if (net > 0) {
+      if (cfg.tariffType === "single") {
+        elec = net * cfg.elecPeak;
+      } else {
+        // netto-afname naar rato over normaal/dal verdelen
+        const shareHigh = afn > 0 ? d.afnHigh / afn : 0.5;
+        elec = net * (shareHigh * cfg.elecPeak + (1 - shareHigh) * cfg.elecOffPeak);
+      }
+    } else {
+      elec = net * cfg.feedInRate; // overschot (negatief = opbrengst)
+    }
+    elec += ret * cfg.feedInCost;
+    const gas = d.gas * cfg.gasRate;
+    const fixed = cfg.fixedSupplyDay + cfg.gridDay + cfg.taxCreditDay;
+    return { elec, gas, fixed, afn, ret, net };
+  }
+
+  /* ================= Periodes ================= */
+  function periodRange() {
+    const c = state.cursorDate;
+    const d = toDate(c);
+    switch (state.mode) {
+      case "day": return [c, c];
+      case "week": { const wd = (d.getUTCDay() + 6) % 7; const s = addDays(c, -wd); return [s, addDays(s, 6)]; }
+      case "month": { const s = c.slice(0, 8) + "01"; return [s, addDays(addMonths(s, 1), -1)]; }
+      case "year": { const y = c.slice(0, 4); return [y + "-01-01", y + "-12-31"]; }
+      case "all": return [ALL_DATES[0] || c, ALL_DATES[ALL_DATES.length - 1] || c];
+      case "custom": {
+        let s = state.customStart, e = state.customEnd;
+        if (s > e) [s, e] = [e, s];
+        return [s, e];
+      }
+    }
+  }
+
+  function periodLabel(s, e) {
+    const d = toDate(s);
+    switch (state.mode) {
+      case "day": return DAYS_SHORT[d.getUTCDay()] + " " + fmtDate(s);
+      case "week": return fmtDate(s).replace(/ \d{4}$/, "") + " – " + fmtDate(e);
+      case "month": return MONTHS_LONG[d.getUTCMonth()] + " " + d.getUTCFullYear();
+      case "year": return String(d.getUTCFullYear());
+      default: return fmtDate(s) + " – " + fmtDate(e);
+    }
+  }
+
+  function datesIn(s, e) { return ALL_DATES.filter(k => k >= s && k <= e); }
+
+  function shiftPeriod(dir) {
+    if (state.mode === "all" || state.mode === "custom") return;
+    const c = state.cursorDate;
+    let n;
+    if (state.mode === "day") n = addDays(c, dir);
+    else if (state.mode === "week") n = addDays(c, 7 * dir);
+    else if (state.mode === "month") n = addMonths(c, dir);
+    else n = addMonths(c, 12 * dir);
+    // niet voorbij de beschikbare data bladeren
+    if (ALL_DATES.length) {
+      const o = state.cursorDate; state.cursorDate = n; const [ps, pe] = periodRange(); state.cursorDate = o;
+      if (ps > ALL_DATES[ALL_DATES.length - 1] || pe < ALL_DATES[0]) return;
+    }
+    state.cursorDate = n;
+    renderAll();
+  }
+
+  /* ================= Grafiekbuckets ================= */
+  function buildBuckets(s, e) {
+    const span = daysBetween(s, e) + 1;
+    const out = [];
+    if (state.mode === "day") {
+      const d = DAY[s];
+      for (let h = 0; h < 24; h++) {
+        out.push({
+          label: String(h).padStart(2, "0") + ":00",
+          afn: d ? d.hAfn[h] : 0, ret: d ? d.hRet[h] : 0, gas: d ? d.hGas[h] : 0,
+          temp: d ? d.hTemp[h] : null
+        });
+      }
+      return out;
+    }
+    const monthly = state.mode === "year" || span > 62;
+    if (!monthly) {
+      for (let k = s; k <= e; k = addDays(k, 1)) {
+        const d = DAY[k], dt = toDate(k);
+        const lbl = state.mode === "week" ? DAYS_SHORT[dt.getUTCDay()] + " " + dt.getUTCDate() : dt.getUTCDate() + " " + MONTHS_SHORT[dt.getUTCMonth()];
+        out.push({ label: lbl, afn: d ? d.afnHigh + d.afnLow : 0, ret: d ? d.retHigh + d.retLow : 0, gas: d ? d.gas : 0, temp: d ? d.temp : null });
+      }
+      return out;
+    }
+    for (let m = s.slice(0, 8) + "01"; m <= e; m = addMonths(m, 1)) {
+      const me = addDays(addMonths(m, 1), -1);
+      const ks = datesIn(m < s ? s : m, me > e ? e : me);
+      let afn = 0, ret = 0, gas = 0, ts = 0, tn = 0;
+      ks.forEach(k => { const d = DAY[k]; afn += d.afnHigh + d.afnLow; ret += d.retHigh + d.retLow; gas += d.gas; if (d.temp !== null) { ts += d.temp; tn++; } });
+      const dt = toDate(m);
+      out.push({ label: MONTHS_SHORT[dt.getUTCMonth()] + " '" + String(dt.getUTCFullYear()).slice(2), afn, ret, gas, temp: tn ? ts / tn : null });
+    }
+    return out;
+  }
+
+  /* ================= Grafiek ================= */
+  let chart = null;
+  const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  function renderChart(s, e) {
+    const b = buildBuckets(s, e);
+    const isElec = state.chartType === "elec";
+    const text = cssVar("--muted"), grid = cssVar("--border");
+    const tempColor = document.documentElement.getAttribute("data-theme") === "dark" ? "#f87171" : "#dc2626";
+    const datasets = [];
+    if (isElec) {
+      datasets.push({ type: "bar", label: "Afname (kWh)", data: b.map(x => +x.afn.toFixed(3)), backgroundColor: cssVar("--elec"), borderRadius: 3, stack: "e", yAxisID: "y", order: 2 });
+      datasets.push({ type: "bar", label: "Teruglevering (kWh)", data: b.map(x => -(+x.ret.toFixed(3))), backgroundColor: cssVar("--return"), borderRadius: 3, stack: "e", yAxisID: "y", order: 2 });
+    } else {
+      datasets.push({ type: "bar", label: "Gas (m³)", data: b.map(x => +x.gas.toFixed(3)), backgroundColor: cssVar("--gas"), borderRadius: 3, yAxisID: "y", order: 2 });
+    }
+    const hasTemp = state.showTemp && b.some(x => x.temp !== null);
+    if (hasTemp) {
+      datasets.push({ type: "line", label: "Temperatuur (°C)", data: b.map(x => x.temp === null ? null : +x.temp.toFixed(1)), borderColor: tempColor, backgroundColor: tempColor, borderWidth: 2, pointRadius: b.length > 40 ? 0 : 2, tension: 0.35, spanGaps: true, yAxisID: "y1", order: 1 });
+    }
+    const unit = isElec ? "kWh" : "m³";
+    const config = {
+      data: { labels: b.map(x => x.label), datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: { duration: 250 },
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { labels: { color: text, boxWidth: 12, font: { size: 11 } } },
+          tooltip: { callbacks: { label: ctx => {
+            const v = ctx.parsed.y; if (v === null) return null;
+            if (ctx.dataset.yAxisID === "y1") return " " + nf1.format(v) + " °C";
+            return " " + ctx.dataset.label.replace(/ \(.*\)/, "") + ": " + nf2.format(Math.abs(v)) + " " + unit;
+          } } }
+        },
+        scales: {
+          x: { stacked: true, ticks: { color: text, maxRotation: 0, autoSkip: true, font: { size: 10 } }, grid: { display: false } },
+          y: { stacked: true, ticks: { color: text, callback: v => nf1.format(v) }, grid: { color: grid }, title: { display: true, text: unit, color: text } },
+          y1: { display: hasTemp, position: "right", ticks: { color: tempColor, callback: v => v + "°" }, grid: { drawOnChartArea: false } }
+        }
+      }
+    };
+    if (chart) chart.destroy();
+    if (!window.Chart) { console.warn("Chart.js niet geladen"); return; }
+    chart = new Chart(document.getElementById("energyChart"), config);
+  }
+
+  /* ================= Tegels ================= */
+  function renderTiles(s, e) {
+    const ks = datesIn(s, e);
+    let elec = 0, gas = 0, fixed = 0, afn = 0, ret = 0, gasM3 = 0, ts = 0, tn = 0;
+    ks.forEach(k => {
+      const d = DAY[k], c = dayCost(d);
+      elec += c.elec; gas += c.gas; fixed += c.fixed; afn += c.afn; ret += c.ret; gasM3 += d.gas;
+      if (d.temp !== null) { ts += d.temp; tn++; }
+    });
+    document.getElementById("elecEuro").textContent = euro(elec);
+    document.getElementById("elecSub").innerHTML = "Afname: " + nf1.format(afn) + " kWh<br>Terug: " + nf1.format(ret) + " kWh";
+    document.getElementById("gasEuro").textContent = euro(gas);
+    document.getElementById("gasSub").innerHTML = "Verbruik: " + nf1.format(gasM3) + " m³<br>Gem. temp: " + (tn ? nf1.format(ts / tn) : "-") + " °C";
+    document.getElementById("totalEuro").textContent = euro(elec + gas + fixed);
+    document.getElementById("fixedBreakdown").innerHTML =
+      "Vaste kosten (" + ks.length + " " + (ks.length === 1 ? "dag" : "dagen") + "): " + euro(fixed) +
+      "<br>incl. vermindering energiebelasting";
+  }
+
+  /* ================= Jaarvoorspelling ================= */
+  function dayWeight(k, weights) { const m = toDate(k).getUTCMonth(); return weights[m] / daysInMonth(k); }
+
+  function renderForecast() {
+    const cs = cfg.contractDate || DEFAULT_CFG.contractDate;
+    const ce = addDays(addMonths(cs, 12), -1);
+    let ks = datesIn(cs, ce);
+    if (!ks.length) ks = ALL_DATES.slice(-365);
+    const fixedDay = cfg.fixedSupplyDay + cfg.gridDay + cfg.taxCreditDay;
+    let elecCost = 0, gasCost = 0, wE = 0, wG = 0;
+    ks.forEach(k => {
+      const c = dayCost(DAY[k]);
+      elecCost += c.elec; gasCost += c.gas;
+      wE += dayWeight(k, ELEC_NET_WEIGHTS); wG += dayWeight(k, GAS_MONTH_WEIGHTS);
+    });
+    const yearElec = wE > 0 ? elecCost / wE : 0;
+    const yearGas = wG > 0 ? gasCost / wG : 0;
+    const year = yearElec + yearGas + fixedDay * 365;
+    const month = year / 12;
+    const termijn = +cfg.termijn || 0;
+    const diffYear = termijn * 12 - year;
+
+    const dc = toDate(cs);
+    document.getElementById("contractStartLbl").textContent = String(dc.getUTCDate()).padStart(2, "0") + "-" + String(dc.getUTCMonth() + 1).padStart(2, "0") + "-" + dc.getUTCFullYear();
+    document.getElementById("yearForecastEuro").textContent = euro0(year);
+    document.getElementById("termijnLbl").textContent = euro0(termijn) + "/mnd";
+    document.getElementById("ringEuro").textContent = euro0(month);
+
+    const ratio = termijn > 0 ? month / termijn : 0;
+    const ring = document.getElementById("ringProgress");
+    ring.setAttribute("stroke-dashoffset", (251.3 * (1 - Math.min(ratio, 1))).toFixed(1));
+    const badge = document.getElementById("forecastBadge");
+    if (!ks.length) {
+      badge.className = "badge warn"; badge.textContent = "Nog geen data";
+      ring.setAttribute("stroke", "var(--muted)");
+    } else if (diffYear >= 0) {
+      badge.className = "badge ok"; badge.textContent = "Terug: ~" + euro0(diffYear) + " (" + ks.length + " dgn data)";
+      ring.setAttribute("stroke", "var(--elec)");
+    } else {
+      badge.className = "badge warn"; badge.textContent = "Bijbetalen: ~" + euro0(-diffYear) + " (" + ks.length + " dgn data)";
+      ring.setAttribute("stroke", "var(--gas)");
+    }
+  }
+
+  /* ================= Render ================= */
+  function renderAll() {
+    const [s, e] = periodRange();
+    document.getElementById("periodLabel").textContent = periodLabel(s, e);
+    const navigable = state.mode !== "all" && state.mode !== "custom";
+    document.getElementById("prevPeriod").style.visibility = navigable ? "visible" : "hidden";
+    document.getElementById("nextPeriod").style.visibility = navigable ? "visible" : "hidden";
+    document.getElementById("customRange").classList.toggle("show", state.mode === "custom");
+    document.querySelectorAll("#periodTabs .seg-btn").forEach(b => b.classList.toggle("active", b.dataset.mode === state.mode));
+
+    const isElec = state.chartType === "elec";
+    document.getElementById("tileElec").classList.toggle("selected", isElec);
+    document.getElementById("tileGas").classList.toggle("selected", !isElec);
+    document.getElementById("btnShowElec").className = "tab-pill" + (isElec ? " active-elec" : "");
+    document.getElementById("btnShowGas").className = "tab-pill" + (!isElec ? " active-gas" : "");
+
+    renderTiles(s, e);
+    renderForecast();
+    renderChart(s, e);
+  }
+
+  /* ================= Bediening ================= */
+  document.querySelectorAll("#periodTabs .seg-btn").forEach(btn => {
+    btn.onclick = () => { state.mode = btn.dataset.mode; renderAll(); };
+  });
+  document.getElementById("prevPeriod").onclick = () => shiftPeriod(-1);
+  document.getElementById("nextPeriod").onclick = () => shiftPeriod(1);
+
+  const sIn = document.getElementById("startDateInput"), eIn = document.getElementById("endDateInput");
+  sIn.value = state.customStart; eIn.value = state.customEnd;
+  if (ALL_DATES.length) { [sIn, eIn].forEach(i => { i.min = ALL_DATES[0]; i.max = ALL_DATES[ALL_DATES.length - 1]; }); }
+  sIn.onchange = () => { if (sIn.value) { state.customStart = sIn.value; renderAll(); } };
+  eIn.onchange = () => { if (eIn.value) { state.customEnd = eIn.value; renderAll(); } };
+
+  const setType = t => { state.chartType = t; renderAll(); };
+  document.getElementById("tileElec").onclick = () => setType("elec");
+  document.getElementById("tileGas").onclick = () => setType("gas");
+  document.getElementById("btnShowElec").onclick = () => setType("elec");
+  document.getElementById("btnShowGas").onclick = () => setType("gas");
+  document.getElementById("toggleTemp").onchange = ev => { state.showTemp = ev.target.checked; renderAll(); };
+
+  // Vegen op de grafiek
+  (function () {
+    const area = document.getElementById("swipeArea");
+    let x0 = null, y0 = null;
+    area.addEventListener("touchstart", ev => { const t = ev.touches[0]; x0 = t.clientX; y0 = t.clientY; }, { passive: true });
+    area.addEventListener("touchend", ev => {
+      if (x0 === null) return;
+      const t = ev.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
+      x0 = null;
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) shiftPeriod(dx < 0 ? 1 : -1);
+    }, { passive: true });
+  })();
+
+  // Pijltjestoetsen op desktop
+  document.addEventListener("keydown", ev => {
+    if (document.getElementById("contractModal").classList.contains("open")) return;
+    if (ev.target.tagName === "INPUT") return;
+    if (ev.key === "ArrowLeft") shiftPeriod(-1);
+    if (ev.key === "ArrowRight") shiftPeriod(1);
+  });
+
+  /* ================= Contract & tarieven ================= */
+  const CFG_FIELDS = {
+    contractDate: "cfgContractDate", termijn: "cfgTermijn", tariffType: "cfgTariffType",
+    elecPeak: "cfgElecPeak", elecOffPeak: "cfgElecOffPeak", feedInRate: "cfgFeedInRate", feedInCost: "cfgFeedInCost",
+    gasRate: "cfgGasRate", fixedSupplyDay: "cfgFixedSupplyDay", gridDay: "cfgGridDay", taxCreditDay: "cfgTaxCreditDay"
+  };
+  const modal = document.getElementById("contractModal");
+  function fillForm(c) {
+    Object.entries(CFG_FIELDS).forEach(([k, id]) => { document.getElementById(id).value = c[k]; });
+    syncTariffField();
+  }
+  function syncTariffField() {
+    document.getElementById("cfgElecOffPeak").disabled = document.getElementById("cfgTariffType").value === "single";
+  }
+  document.getElementById("cfgTariffType").onchange = syncTariffField;
+  document.getElementById("openContractBtn").onclick = () => { fillForm(cfg); document.getElementById("pdfStatus").textContent = ""; modal.classList.add("open"); };
+  document.getElementById("closeContractBtn").onclick = () => modal.classList.remove("open");
+  modal.addEventListener("click", ev => { if (ev.target === modal) modal.classList.remove("open"); });
+  document.getElementById("saveContractBtn").onclick = () => {
+    const n = {};
+    Object.entries(CFG_FIELDS).forEach(([k, id]) => {
+      const v = document.getElementById(id).value;
+      if (k === "contractDate" || k === "tariffType") n[k] = v || DEFAULT_CFG[k];
+      else { const f = parseFloat(String(v).replace(",", ".")); n[k] = isFinite(f) ? f : DEFAULT_CFG[k]; }
+    });
+    cfg = Object.assign({}, DEFAULT_CFG, n);
+    localStorage.setItem("energie_cfg_v1", JSON.stringify(cfg));
+    modal.classList.remove("open");
+    renderAll();
+  };
+
+  // PDF lokaal uitlezen
+  const pdfInput = document.getElementById("pdfFileInput");
+  document.getElementById("pdfDropZone").onclick = ev => { if (ev.target !== pdfInput) pdfInput.click(); };
+  pdfInput.onchange = async () => {
+    const file = pdfInput.files[0];
+    const status = document.getElementById("pdfStatus");
+    if (!file) return;
+    if (!window.pdfjsLib) { status.textContent = "PDF-lezer kon niet worden geladen."; return; }
+    status.textContent = "PDF wordt uitgelezen…";
+    try {
+      const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+      let text = "";
+      for (let p = 1; p <= pdf.numPages; p++) {
+        const page = await pdf.getPage(p);
+        const tc = await page.getTextContent();
+        let lastY = null;
+        tc.items.forEach(it => {
+          const y = it.transform ? Math.round(it.transform[5]) : null;
+          text += (lastY !== null && y !== lastY ? "\n" : " ") + it.str;
+          lastY = y;
+        });
+        text += "\n";
+      }
+      const found = parseContract(text);
+      const cur = {};
+      Object.entries(CFG_FIELDS).forEach(([k, id]) => { cur[k] = document.getElementById(id).value; });
+      fillForm(Object.assign(cur, found));
+      const n = Object.keys(found).length;
+      status.textContent = n ? n + " waarde(n) herkend — controleer de velden en klik op Opslaan." : "Geen tarieven herkend; vul de velden handmatig in.";
+    } catch (err) {
+      status.textContent = "Fout bij uitlezen PDF: " + err.message;
+    } finally {
+      pdfInput.value = "";
+    }
+  };
+
+  function parseContract(text) {
+    const lines = text.split(/\n/).map(l => l.replace(/\s+/g, " ").trim()).filter(Boolean);
+    const out = {};
+    const amountRe = /(-?\s?€?\s?-?\d{1,4}[.,]\d{2,6})/g;
+    const amounts = l => (l.match(amountRe) || []).map(a => num(a.replace(/[€\s]/g, "").replace(/^(-?\d+)\.(\d+)$/, "$1,$2"))).filter(v => v !== null);
+    // bedrag per dag uit een regel (rekent maand/jaar om)
+    const perDay = (l, v) => /jaar/i.test(l) ? v / 365 : /maand|mnd/i.test(l) ? v * 12 / 365 : v;
+    // pak de regel + volgende regel (bedrag staat soms op de volgende regel)
+    const find = (re, not) => {
+      for (let i = 0; i < lines.length; i++) {
+        if (re.test(lines[i]) && !(not && not.test(lines[i]))) {
+          const ctx = lines[i] + " " + (lines[i + 1] || "");
+          const a = amounts(lines[i]).length ? amounts(lines[i]) : amounts(lines[i + 1] || "");
+          if (a.length) return { v: a[a.length - 1], l: ctx };
+        }
+      }
+      return null;
+    };
+    let r;
+    if ((r = find(/(normaal|piek|hoog)[^\n]*kwh|kwh[^\n]*(normaal|piek)/i, /terug/i))) out.elecPeak = +r.v.toFixed(5);
+    if ((r = find(/(dal|laag)[^\n]*kwh|kwh[^\n]*dal/i, /terug/i))) out.elecOffPeak = +r.v.toFixed(5);
+    if (!out.elecPeak && (r = find(/enkel[^\n]*kwh|kwh[^\n]*enkel|leveringstarief stroom|stroom[^\n]*per kwh/i, /terug/i))) { out.elecPeak = +r.v.toFixed(5); out.tariffType = "single"; }
+    else if (out.elecPeak && !out.elecOffPeak) out.tariffType = "single";
+    else if (out.elecPeak && out.elecOffPeak) out.tariffType = "double";
+    if ((r = find(/terugleververgoeding|vergoeding[^\n]*teruglever/i))) out.feedInRate = +Math.abs(r.v).toFixed(5);
+    if ((r = find(/terugleverkosten|kosten[^\n]*teruglever/i))) out.feedInCost = +Math.abs(r.v).toFixed(5);
+    if ((r = find(/gas[^\n]*m(3|³)|m(3|³)[^\n]*gas|leveringstarief gas/i, /vast|netbeheer/i))) out.gasRate = +r.v.toFixed(5);
+    let fixed = 0, fixedN = 0;
+    lines.forEach((l, i) => {
+      if (/vaste leveringskosten|vastrecht levering|vaste kosten levering/i.test(l)) {
+        const a = amounts(l).length ? amounts(l) : amounts(lines[i + 1] || "");
+        if (a.length) { fixed += perDay(l, a[a.length - 1]); fixedN++; }
+      }
+    });
+    if (fixedN) out.fixedSupplyDay = +fixed.toFixed(4);
+    let grid = 0, gridN = 0;
+    lines.forEach((l, i) => {
+      if (/netbeheer|transportkosten|aansluitkosten/i.test(l)) {
+        const a = amounts(l).length ? amounts(l) : amounts(lines[i + 1] || "");
+        if (a.length) { grid += perDay(l, a[a.length - 1]); gridN++; }
+      }
+    });
+    if (gridN) out.gridDay = +grid.toFixed(4);
+    if ((r = find(/vermindering energiebelasting|heffingskorting/i))) out.taxCreditDay = -Math.abs(+perDay(r.l, r.v).toFixed(4));
+    return out;
+  }
+
+  /* ================= Start ================= */
+  if (!ALL_DATES.length) {
+    document.getElementById("periodLabel").textContent = "Geen data gevonden (alle_data.js)";
+  }
+  renderAll();
+</script>
+</body>
+</html>
