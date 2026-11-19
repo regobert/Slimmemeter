@@ -2,8 +2,7 @@ name: Energiedata bijwerken
 
 on:
   schedule:
-    - cron: "17 6 * * *"   # dagelijks 07:17 (winter) / 08:17 (zomer) Nederlandse tijd
-    - cron: "17 15 * * *"  # extra ronde 's middags voor laat binnengekomen data
+    - cron: "7 1 * * *"    # dagelijks 02:07 (winter) / 03:07 (zomer) Nederlandse tijd
   workflow_dispatch: {}    # handmatig starten via het tabblad Actions
 
 permissions:
