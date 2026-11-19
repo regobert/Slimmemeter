@@ -478,7 +478,7 @@
   <div class="topbar">
     <div class="brand">
       <h1>⚡ Mijn Energie</h1>
-      <span class="app-version" title="Versie van het dashboard; ververs de pagina als dit niet de nieuwste is">versie 2026-11-19 15:57</span>
+      <span class="app-version" id="appVersion" title="Tijdstip waarop deze versie van het dashboard is gepubliceerd; ververs de pagina als dit niet de nieuwste is"></span>
     </div>
     <div class="top-actions">
       <button class="icon-btn" id="openInsightsBtn">📊 Inzichten</button>
@@ -2594,6 +2594,12 @@
 
   contracts.forEach(normalizeContract);
   LS.set("energie_contracts_v1", contracts);
+
+  // versie = publicatietijd van index.html (Last-Modified van GitHub Pages), in Nederlandse tijd
+  (function () {
+    const d = new Date(document.lastModified);
+    if (!isNaN(d)) document.getElementById("appVersion").textContent = "versie " + d.toLocaleString("nl-NL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  })();
 
   /* ================= Start ================= */
   if (!ALL_DATES.length && !histMonths().length) document.getElementById("periodLabel").textContent = "Geen data gevonden (alle_data.js)";
