@@ -603,13 +603,14 @@
       </div>
       <div class="table-scroll" style="margin-bottom:8px;">
         <table class="mini-table" id="contractListTable">
-          <thead><tr><th><input type="checkbox" id="contractSelAll" title="Alle zichtbare selecteren" /></th><th>Contract</th><th>Periode</th><th>Saldering</th><th>Controle</th><th></th></tr></thead>
+          <thead><tr><th><input type="checkbox" id="contractSelAll" title="Alle zichtbare selecteren" /></th><th>Contract</th><th>Periode</th><th>Saldering</th><th>Controle</th><th></th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
       <div class="row-actions">
+        <button class="icon-btn" id="dlSelectedBtn">⬇️ Aangevinkte downloaden</button>
         <button class="icon-btn" id="delSelectedBtn">🗑 Aangevinkte verwijderen</button>
-        <span class="hint" style="margin:0;">Klik op een contract om het te bewerken; ✕ verwijdert één contract.<br>🗑 = waarschijnlijk geen contract of dubbel (bij "Twijfelgevallen" selecteert het vinkje bovenaan alleen deze) · ✏️ = onvolledig, aanvullen · ⚠ = controleren</span>
+        <span class="hint" style="margin:0;">Klik op een contract om het te bewerken; ⬇️ downloadt en ✕ verwijdert één contract.<br>🗑 = waarschijnlijk geen contract of dubbel (bij "Twijfelgevallen" selecteert het vinkje bovenaan alleen deze) · ✏️ = onvolledig, aanvullen · ⚠ = controleren</span>
       </div>
 
       <div class="section-title">Contract toevoegen</div>
@@ -1492,6 +1493,10 @@
         [...tdc.children].forEach((d, i) => d.textContent = icon[issues[i].t] + issues[i].m);
       }
       tr.appendChild(tdc);
+      const tdl = document.createElement("td"), dl = document.createElement("button");
+      dl.className = "del-btn"; dl.textContent = "⬇️"; dl.title = "Download dit contract (.json)";
+      dl.onclick = ev => { ev.stopPropagation(); downloadContracts([c.id]); };
+      tdl.appendChild(dl); tr.appendChild(tdl);
       const tdd = document.createElement("td"), del = document.createElement("button");
       del.className = "del-btn"; del.textContent = "✕"; del.title = "Verwijder dit contract";
       del.onclick = ev => { ev.stopPropagation(); deleteContracts([c.id]); };
@@ -1501,7 +1506,22 @@
     });
     document.getElementById("contractSelAll").checked = false;
     document.getElementById("contractFilterInfo").textContent = nOk + " energiecontract(en)" + (nWarn ? ", " + nWarn + " twijfelgeval(len)" : "");
-    if (!tb.children.length) { const tr = document.createElement("tr"); tr.innerHTML = '<td colspan="6" style="color:var(--muted)">Geen contracten in deze selectie.</td>'; tb.appendChild(tr); }
+    if (!tb.children.length) { const tr = document.createElement("tr"); tr.innerHTML = '<td colspan="7" style="color:var(--muted)">Geen contracten in deze selectie.</td>'; tb.appendChild(tr); }
+  }
+  // Contracten als .json downloaden (zelfde formaat als 'Uit contractbestand' importeert)
+  function downloadContracts(ids) {
+    if (!ids.length) { alert("Vink eerst de contracten aan die je wilt downloaden."); return; }
+    readForm();
+    const list = draft.filter(c => ids.includes(c.id)).sort((a, b) => (a.start < b.start ? -1 : 1))
+      .map(c => { const o = clone(c); delete o.id; return o; });
+    const blob = new Blob([JSON.stringify({ app: "mijn-energie", type: "contracten", contracts: list }, null, 1)], { type: "application/json" });
+    const safe = t => t.replace(/[^\w\-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (list.length === 1 ? safe(list[0].naam) : "contracten-" + list.length + "-" + todayKey()) + ".json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    document.getElementById("pdfStatus").textContent = "⬇️ " + list.length + " contract(en) gedownload als " + a.download + ". Inlezen kan via 'Uit contractbestand (.json)'.";
   }
   function deleteContracts(ids) {
     if (!ids.length) return;
@@ -1553,6 +1573,9 @@
     setTimeout(() => document.getElementById("cfgName").focus(), 300);
   };
   document.getElementById("delContractBtn").onclick = () => deleteContracts([selId]);
+  document.getElementById("dlSelectedBtn").onclick = () => {
+    downloadContracts([...document.querySelectorAll("#contractListTable tbody input[type=checkbox]:checked")].map(x => x.dataset.id));
+  };
   document.getElementById("delSelectedBtn").onclick = () => {
     const ids = [...document.querySelectorAll("#contractListTable tbody input[type=checkbox]:checked")].map(x => x.dataset.id);
     if (!ids.length) { alert("Vink eerst de contracten aan die je wilt verwijderen."); return; }
