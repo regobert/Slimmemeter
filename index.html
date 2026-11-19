@@ -444,6 +444,10 @@
     .ins-card .val { font-size: 1.25rem; font-weight: 800; margin-top: 2px; }
     .ins-card .sub { font-size: 0.74rem; color: var(--muted); margin-top: 2px; }
     .ins-chart { position: relative; height: 240px; margin: 6px 0 4px; }
+    .cost-details { margin: -2px 0 10px; font-size: 0.8rem; }
+    .cost-details summary { cursor: pointer; color: var(--accent); font-weight: 600; margin-bottom: 4px; }
+    .cost-details td.num { text-align: right; white-space: nowrap; }
+    .cost-details tr.tot td { font-weight: 700; }
   </style>
 </head>
 <body>
@@ -507,6 +511,11 @@
             Incl. vaste kosten<br>& belastingvermindering
           </div>
         </div>
+
+        <details class="cost-details" id="costDetails">
+          <summary>Kostenopbouw</summary>
+          <table class="mini-table" id="costTable"><tbody></tbody></table>
+        </details>
 
         <div class="forecast-box">
           <div class="ring-wrap">
@@ -593,6 +602,14 @@
           </select>
         </div>
         <div class="field">
+          <label>Saldering</label>
+          <select id="cfgSaldering">
+            <option value="auto">Automatisch: per jaar t/m 2026, daarna per dag</option>
+            <option value="jaar">Per (contract)jaar — salderingsregeling</option>
+            <option value="dag">Per dag wegstrepen</option>
+          </select>
+        </div>
+        <div class="field">
           <label>Startdatum contract</label>
           <input type="date" id="cfgStart" />
         </div>
@@ -613,7 +630,7 @@
           <input type="number" step="0.0001" id="cfgFeedInRate" />
         </div>
         <div class="field">
-          <label>Terugleverkosten (€ / teruggeleverde kWh)</label>
+          <label>Terugleverkosten (€ / teruggeleverde kWh, 0 = geen)</label>
           <input type="number" step="0.0001" id="cfgFeedInCost" />
         </div>
         <div class="field">
@@ -768,7 +785,7 @@
     gasRate: 1.3200, fixedSupplyDay: 0.4800, gridDay: 1.7500, taxCreditDay: -1.7300, termijn: 150.00
   };
   function newContract(o) {
-    return Object.assign({ id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), naam: "Contract", start: "2026-10-01", end: "", maandTarieven: {} }, TARIFF_DEFAULTS, o || {});
+    return Object.assign({ id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), naam: "Contract", start: "2026-10-01", end: "", maandTarieven: {}, saldering: "auto" }, TARIFF_DEFAULTS, o || {});
   }
 
   let contracts = LS.get("energie_contracts_v1", null);
@@ -919,35 +936,88 @@
     RATE_FIELDS.forEach(f => { if (m[f] !== null && m[f] !== undefined && m[f] !== "" && isFinite(m[f])) t[f] = +m[f]; });
     return t;
   }
-  const fixedDay = t => (+t.fixedSupplyDay || 0) + (+t.gridDay || 0) + (+t.taxCreditDay || 0);
   function termijnFor(m) {
     if (termijnen[m] !== undefined && termijnen[m] !== null && termijnen[m] !== "") return +termijnen[m];
     return +contractFor(m + "-15").termijn || 0;
   }
 
-  // Dagelijkse saldering: netto-afname tegen leveringstarief, netto-overschot tegen terugleververgoeding
-  function elecCost(afnHigh, afnLow, ret, t) {
-    const afn = afnHigh + afnLow, net = afn - ret;
-    let c;
-    if (net > 0) {
-      if (t.tariffType === "single") c = net * t.elecPeak;
-      else { const sh = afn > 0 ? afnHigh / afn : 0.5; c = net * (sh * t.elecPeak + (1 - sh) * t.elecOffPeak); }
-    } else c = net * t.feedInRate;
-    return c + ret * t.feedInCost;
+  // ---- Saldering ----
+  // auto: wettelijke salderingsregeling per (contract)jaar t/m 31-12-2026, daarna per dag
+  const LAW_END = "2026-12-31";
+  function salderingMode(c, k) {
+    const m = c.saldering || "auto";
+    return m === "auto" ? (k <= LAW_END ? "jaar" : "dag") : m;
+  }
+  // Verrekenperiode (jaarnota) waarin dag k valt
+  function settleWindow(c, k) {
+    if (!inContract(c, k)) { const y = k.slice(0, 4); return [y + "-01-01", y + "-12-31"]; }
+    let ws = c.start;
+    while (addMonths(ws, 12) <= k) ws = addMonths(ws, 12);
+    let we = addDays(addMonths(ws, 12), -1);
+    if (c.end && we > c.end) we = c.end;
+    if ((c.saldering || "auto") === "auto" && we > LAW_END) we = LAW_END;
+    return [ws, we];
+  }
+  let volCache = new Map();
+  const clearCostCache = () => { volCache = new Map(); };
+  function volumesIn(s, e) {
+    const key = s + "|" + e;
+    if (volCache.has(key)) return volCache.get(key);
+    let afn = 0, ret = 0;
+    ALL_DATES.forEach(k => { if (k >= s && k <= e) { const d = DAY[k]; afn += d.afnHigh + d.afnLow; ret += d.retHigh + d.retLow; } });
+    histMonths().forEach(m => {
+      const ms = m + "-01", me = monthEnd(m), os = ms > s ? ms : s, oe = me < e ? me : e;
+      if (os > oe) return;
+      const f = (daysBetween(os, oe) + 1) / daysInMonth(ms);
+      afn += (hist[m].afn || 0) * f; ret += (hist[m].ret || 0) * f;
+    });
+    const v = { afn, ret };
+    volCache.set(key, v);
+    return v;
+  }
+  // Deel van de teruggeleverde kWh dat tegen het leveringstarief wordt weggestreept (rest: terugleververgoeding)
+  function nettingFactor(c, k) {
+    const [ws, we] = settleWindow(c, k), v = volumesIn(ws, we);
+    return v.ret > v.afn && v.ret > 0 ? v.afn / v.ret : 1;
+  }
+
+  // Stroomkosten in componenten. afnH/afnL/retH/retL in kWh; mode "jaar" of "dag"
+  function elecParts(afnH, afnL, retH, retL, t, mode, f) {
+    const peak = +t.elecPeak, off = t.tariffType === "single" ? +t.elecPeak : +t.elecOffPeak, feed = +t.feedInRate;
+    const afn = afnH + afnL, ret = retH + retL;
+    let supply, credit;
+    if (mode === "jaar") {
+      supply = afnH * peak + afnL * off;
+      credit = -(retH * (f * peak + (1 - f) * feed) + retL * (f * off + (1 - f) * feed));
+    } else { // per dag (of per maand bij maandtotalen) wegstrepen
+      const blend = afn > 0 ? (afnH * peak + afnL * off) / afn : (peak + off) / 2;
+      supply = afn * blend;
+      credit = -(Math.min(ret, afn) * blend + Math.max(0, ret - afn) * feed);
+    }
+    return { supply, credit, fcost: ret * (+t.feedInCost || 0) };
+  }
+  function fixedParts(t, days) {
+    return { fSupply: (+t.fixedSupplyDay || 0) * days, fGrid: (+t.gridDay || 0) * days, fTax: (+t.taxCreditDay || 0) * days };
+  }
+  const fixedDay = t => (+t.fixedSupplyDay || 0) + (+t.gridDay || 0) + (+t.taxCreditDay || 0);
+  function makePart(base, ep, fp, gasEur) {
+    return Object.assign(base, ep, fp, { elec: ep.supply + ep.credit + ep.fcost, gas: gasEur, fixed: fp.fSupply + fp.fGrid + fp.fTax });
   }
 
   function dayPart(k) {
-    const d = DAY[k], t = tariffsFor(k), ret = d.retHigh + d.retLow;
-    return { key: k, days: 1, elec: elecCost(d.afnHigh, d.afnLow, ret, t), gas: d.gas * t.gasRate, fixed: fixedDay(t),
-             afn: d.afnHigh + d.afnLow, ret, gasM3: d.gas, temp: d.temp, est: !covered(k), monthly: false };
+    const d = DAY[k], t = tariffsFor(k), c = contractFor(k), mode = salderingMode(c, k);
+    const ep = elecParts(d.afnHigh, d.afnLow, d.retHigh, d.retLow, t, mode, mode === "jaar" ? nettingFactor(c, k) : 1);
+    return makePart({ key: k, days: 1, afn: d.afnHigh + d.afnLow, ret: d.retHigh + d.retLow, gasM3: d.gas, temp: d.temp, est: !covered(k), monthly: false },
+                    ep, fixedParts(t, 1), d.gas * t.gasRate);
   }
-  // Historische maand (alleen totalen): saldering per maand als benadering, deel 'frac' van de maand
+  // Historische maand (alleen totalen, geen normaal/dal-verdeling), deel 'frac' van de maand
   function histPart(m, frac) {
-    const h = hist[m], k = m + "-15", t = tariffsFor(k);
+    const h = hist[m], k = m + "-15", t = tariffsFor(k), c = contractFor(k), mode = salderingMode(c, k);
     const afn = (h.afn || 0) * frac, ret = (h.ret || 0) * frac, gas = (h.gas || 0) * frac;
     const days = daysInMonth(m + "-01") * frac;
-    return { key: m + "-01", days, elec: elecCost(afn / 2, afn / 2, ret, t), gas: gas * t.gasRate, fixed: fixedDay(t) * days,
-             afn, ret, gasM3: gas, temp: histTemp[m] !== undefined ? histTemp[m] : null, est: true, monthly: true };
+    const ep = elecParts(afn / 2, afn / 2, ret / 2, ret / 2, t, mode, mode === "jaar" ? nettingFactor(c, k) : 1);
+    return makePart({ key: m + "-01", days, afn, ret, gasM3: gas, temp: histTemp[m] !== undefined ? histTemp[m] : null, est: true, monthly: true },
+                    ep, fixedParts(t, days), gas * t.gasRate);
   }
   function partsIn(s, e, withHist) {
     const parts = ALL_DATES.filter(k => k >= s && k <= e).map(dayPart);
@@ -959,11 +1029,13 @@
     });
     return parts;
   }
+  const SUM_FIELDS = ["elec", "gas", "fixed", "afn", "ret", "gasM3", "days", "supply", "credit", "fcost", "fSupply", "fGrid", "fTax"];
   function sumParts(parts) {
-    const r = { elec: 0, gas: 0, fixed: 0, afn: 0, ret: 0, gasM3: 0, days: 0, est: false, monthly: false };
+    const r = { est: false, monthly: false };
+    SUM_FIELDS.forEach(f => r[f] = 0);
     let ts = 0, tw = 0;
     parts.forEach(p => {
-      ["elec", "gas", "fixed", "afn", "ret", "gasM3", "days"].forEach(f => r[f] += p[f]);
+      SUM_FIELDS.forEach(f => r[f] += p[f] || 0);
       if (p.temp !== null && p.temp !== undefined) { ts += p.temp * p.days; tw += p.days; }
       r.est = r.est || p.est; r.monthly = r.monthly || p.monthly;
     });
@@ -1105,6 +1177,23 @@
     const days = Math.round(r.days);
     const ks = partsIn(s, e, withHist()).map(p => contractFor(p.key).naam);
     const names = [...new Set(ks)];
+    const rows = [
+      ["Stroom levering (" + nf0.format(r.afn) + " kWh)", r.supply],
+      ["Teruglevering / saldering (" + nf0.format(r.ret) + " kWh)", r.credit],
+      ["Terugleverkosten", r.fcost],
+      ["Gas (" + nf0.format(r.gasM3) + " m³)", r.gas],
+      ["Vaste leveringskosten", r.fSupply],
+      ["Netbeheerkosten", r.fGrid],
+      ["Vermindering energiebelasting", r.fTax],
+      ["Totaal", r.elec + r.gas + r.fixed]
+    ];
+    const ctb = document.querySelector("#costTable tbody"); ctb.innerHTML = "";
+    rows.forEach(([l, v], i) => {
+      const tr = document.createElement("tr"); if (i === rows.length - 1) tr.className = "tot";
+      const a = document.createElement("td"); a.textContent = l;
+      const b = document.createElement("td"); b.className = "num"; b.textContent = euro(v);
+      tr.appendChild(a); tr.appendChild(b); ctb.appendChild(tr);
+    });
     document.getElementById("fixedBreakdown").innerHTML =
       "Vaste kosten (" + days + " " + (days === 1 ? "dag" : "dagen") + "): " + euro(r.fixed) +
       "<br>" + (names.length ? names.join(" + ") : "") +
@@ -1155,6 +1244,7 @@
 
   /* ================= Render ================= */
   function renderAll() {
+    clearCostCache();
     const [s, e] = periodRange();
     document.getElementById("periodLabel").textContent = periodLabel(s, e);
     const navigable = state.mode !== "all" && state.mode !== "custom";
@@ -1216,11 +1306,11 @@
   /* ================= Modal: contracten ================= */
   const modal = document.getElementById("contractModal");
   const CFG_FIELDS = {
-    naam: "cfgName", start: "cfgStart", end: "cfgEnd", tariffType: "cfgTariffType", termijn: "cfgTermijn",
+    naam: "cfgName", start: "cfgStart", end: "cfgEnd", tariffType: "cfgTariffType", saldering: "cfgSaldering", termijn: "cfgTermijn",
     elecPeak: "cfgElecPeak", elecOffPeak: "cfgElecOffPeak", feedInRate: "cfgFeedInRate", feedInCost: "cfgFeedInCost",
     gasRate: "cfgGasRate", fixedSupplyDay: "cfgFixedSupplyDay", gridDay: "cfgGridDay", taxCreditDay: "cfgTaxCreditDay"
   };
-  const TEXT_FIELDS = ["naam", "start", "end", "tariffType"];
+  const TEXT_FIELDS = ["naam", "start", "end", "tariffType", "saldering"];
   let draft = null, draftTermijnen = null, selId = null;
   const clone = o => JSON.parse(JSON.stringify(o));
   const selContract = () => draft.find(c => c.id === selId);
@@ -1258,7 +1348,7 @@
     });
     sel.value = selId;
     const c = selContract();
-    Object.entries(CFG_FIELDS).forEach(([k, id]) => { document.getElementById(id).value = c[k] === undefined ? "" : c[k]; });
+    Object.entries(CFG_FIELDS).forEach(([k, id]) => { document.getElementById(id).value = c[k] === undefined ? (k === "saldering" ? "auto" : "") : c[k]; });
     document.getElementById("cfgElecOffPeak").disabled = c.tariffType === "single";
     // maandtarieven
     const tb = document.querySelector("#monthTariffTable tbody");
@@ -1698,6 +1788,7 @@
   }
 
   function renderInsights() {
+    clearCostCache();
     const months = allMonths();
     const T = {}; months.forEach(m => { const t = monthTotals(m); if (t) T[m] = t; });
     const fmt0 = v => v === null || v === undefined ? "–" : nf0.format(v);
