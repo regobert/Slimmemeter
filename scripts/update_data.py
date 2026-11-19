@@ -121,7 +121,7 @@ def haal_temperaturen(data):
 def main():
     api_key = os.getenv("SMP_API_KEY")
     if not api_key:
-        sys.exit("SMP_API_KEY ontbreekt (in GitHub: Settings > Secrets and variables > Actions).")
+        sys.exit("SMP_API_KEY ontbreekt (GitHub-secret SLIMME_METER_RJE onder Settings > Secrets and variables > Actions).")
     data = lees_data()
     print(f"Bestaande data: {len(data)} dagen ({min(data, default='-')} t/m {max(data, default='-')})")
     n = haal_meterdata(data, api_key)

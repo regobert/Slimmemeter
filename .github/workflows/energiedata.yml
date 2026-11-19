@@ -28,7 +28,7 @@ jobs:
 
       - name: Gegevens ophalen
         env:
-          SMP_API_KEY: ${{ secrets.SMP_API_KEY }}
+          SMP_API_KEY: ${{ secrets.SLIMME_METER_RJE || secrets.SMP_API_KEY }}
         run: python scripts/update_data.py
 
       - name: Opslaan in repository
