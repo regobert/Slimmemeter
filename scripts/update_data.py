@@ -50,7 +50,11 @@ def haal_meterdata(data, api_key):
     headers = {"API-Key": api_key, "Accept": "application/json"}
     r = requests.get(f"{BASE_URL}/connections", headers=headers, timeout=30)
     if r.status_code != 200:
-        sys.exit(f"Fout bij ophalen aansluitingen ({r.status_code}): {r.text[:200]}")
+        hint = ""
+        if r.status_code in (401, 403):
+            hint = (" -> Sleutel geweigerd. Controleer of de secret exact dezelfde sleutel bevat als SMP_API_KEY"
+                    " in je .env, of dat Slimmemeterportal verzoeken vanaf GitHub-servers blokkeert.")
+        sys.exit(f"Fout bij ophalen aansluitingen ({r.status_code}): {r.text[:200]}{hint}")
     connections = [c for c in r.json() if c.get("end_date") is None]
     print(f"Aansluitingen: {', '.join(c.get('connection_type', '?') for c in connections)}")
 
@@ -119,7 +123,8 @@ def haal_temperaturen(data):
 
 
 def main():
-    api_key = os.getenv("SMP_API_KEY")
+    api_key = (os.getenv("SMP_API_KEY") or "").strip()
+    print(f"API-sleutel: {len(api_key)} tekens")  # alleen de lengte, nooit de sleutel zelf
     if not api_key:
         sys.exit("SMP_API_KEY ontbreekt (GitHub-secret SLIMME_METER_RJE onder Settings > Secrets and variables > Actions).")
     data = lees_data()
