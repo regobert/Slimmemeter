@@ -677,7 +677,7 @@
         <div class="field">
           <label>Saldering</label>
           <select id="cfgSaldering">
-            <option value="auto">Automatisch: per jaar t/m 2026, daarna per dag</option>
+            <option value="auto">Automatisch: per jaar t/m 2026, daarna geen saldering</option>
             <option value="jaar">Per (contract)jaar — salderingsregeling</option>
             <option value="dag">Per dag wegstrepen</option>
             <option value="geen">Geen — afname en teruglevering elk tegen eigen (dynamisch) tarief</option>
@@ -1057,11 +1057,12 @@
   function termijnFor(m) { return effTermijn(m, termijnen, contracts); }
 
   // ---- Saldering ----
-  // auto: wettelijke salderingsregeling per (contract)jaar t/m 31-12-2026, daarna per dag
+  // auto: wettelijke salderingsregeling per (contract)jaar t/m 31-12-2026; daarna geen saldering meer
+  // (elke afgenomen kWh volledig betalen, elke teruggeleverde kWh tegen de terugleververgoeding)
   const LAW_END = "2026-12-31";
   function salderingMode(c, k) {
     const m = c.saldering || "auto";
-    return m === "auto" ? (k <= LAW_END ? "jaar" : "dag") : m;
+    return m === "auto" ? (k <= LAW_END ? "jaar" : "geen") : m;
   }
   // Verrekenperiode (jaarnota) waarin dag k valt
   function settleWindow(c, k) {
@@ -1333,6 +1334,16 @@
     });
     const out = {};
     Object.keys(acc).forEach(mi => { const a = acc[mi]; out[mi] = { afn: a.afn / a.n, ret: a.ret / a.n, gas: a.gas / a.n, n: a.n }; });
+    // kalendermaanden zonder historie sinds 'from': dan alle eerdere jaren gebruiken
+    const all = {};
+    allMonths().forEach(m => {
+      if (m > ref.slice(0, 7)) return;
+      const t = monthTotals(m); if (!t || !t.complete) return;
+      const mi = +m.slice(5) - 1; if (out[mi]) return;
+      all[mi] = all[mi] || { afn: 0, ret: 0, gas: 0, n: 0 };
+      all[mi].afn += t.afn; all[mi].ret += t.ret; all[mi].gas += t.gas; all[mi].n++;
+    });
+    Object.keys(all).forEach(mi => { const a = all[mi]; out[mi] = { afn: a.afn / a.n, ret: a.ret / a.n, gas: a.gas / a.n, n: a.n, older: true }; });
     return { from, months: out };
   }
   // Welk deel van min(afname, teruglevering) per maand ook binnen dezelfde dag wegvalt (voor saldering per dag)
@@ -1435,6 +1446,7 @@
     row(saldo > 0 ? "Tot nu te weinig betaald" : "Tot nu te veel betaald", Math.abs(saldo), "tot", saldo > 0 ? "pos" : "neg");
     row("Verwachting hele contractjaar", null, "sub");
     row("Verwachte kosten rest van het jaar", y.est.total);
+    if (y.est.missing) row("⚠ " + y.est.missing + " maand(en) zonder verbruikshistorie — verwachting te laag", null, "sub");
     row("Verwacht jaarbedrag", y.year, "tot");
     row("Termijnbedragen hele jaar", -y.termijnYear);
     const d = y.termijnYear - y.year;
@@ -1487,6 +1499,10 @@
     const nHist = Object.keys(y.exp.months).length;
     if (!nHist && !y.actual.days) {
       badge.className = "badge warn"; badge.textContent = "Nog geen data"; ring.setAttribute("stroke", "var(--muted)");
+    } else if (y.est.missing) {
+      badge.className = "badge warn"; badge.textContent = "Onbetrouwbaar: historie ontbreekt";
+      ring.setAttribute("stroke", "var(--muted)");
+      document.getElementById("yearForecastEuro").textContent = "onbekend";
     } else if (diffYear >= 0) {
       badge.className = "badge ok"; badge.textContent = "Terug: ~" + euro0(diffYear); ring.setAttribute("stroke", "var(--elec)");
     } else {
@@ -1495,7 +1511,8 @@
     const fromLbl = MONTHS_SHORT[+y.exp.from.slice(5, 7) - 1] + " " + y.exp.from.slice(0, 4);
     document.getElementById("forecastBasis").textContent =
       "Werkelijke kosten t/m " + fmtDate(y.ref) + " + verwacht verbruik o.b.v. gemiddelde per maand sinds " + fromLbl +
-      (y.est.missing ? " (" + y.est.missing + " maand(en) zonder historie)" : "") + ", tegen de tarieven van dit contract.";
+      ", tegen de tarieven van dit contract." +
+      (y.est.missing ? " ⚠ Voor " + y.est.missing + " maand(en) van het contractjaar is geen verbruikshistorie in deze browser — upload je Excel-historie of importeer een volledige back-up (Contracten & gegevens → Historie & back-up)." : "");
     renderCostTable();
   }
 
@@ -2211,8 +2228,15 @@
     try {
       const js = JSON.parse(await importInput.files[0].text());
       if (!Array.isArray(js.contracts) || !js.contracts.length) throw new Error("geen geldige back-up");
-      contracts = js.contracts; termijnen = js.termijnen || {}; hist = js.hist || {}; histTemp = js.histTemp || {};
-      degreeDays = js.degreeDays || {}; LS.set("energie_gd_v1", degreeDays);
+      if (js.type === "contracten" || js.hist === undefined) {
+        // dit is een contractbestand, geen volledige back-up: alleen contracten toevoegen, de rest blijft staan
+        throw new Error("dit is een contractbestand, geen volledige back-up. Gebruik 'Uit contractbestand (.json)' op het tabblad Contracten. Er is niets gewijzigd.");
+      }
+      contracts = js.contracts;
+      if (js.termijnen !== undefined) termijnen = js.termijnen;
+      hist = js.hist;
+      if (js.histTemp !== undefined) histTemp = js.histTemp;
+      if (js.degreeDays !== undefined) { degreeDays = js.degreeDays; LS.set("energie_gd_v1", degreeDays); }
       if (js.wpStart !== undefined) { wpStart = js.wpStart; LS.set("energie_wp_v1", wpStart); wpInput.value = wpStart; }
       saveAll(); LS.set("energie_histtemp_v1", histTemp);
       openModal(); afterHistChange();

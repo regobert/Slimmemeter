@@ -30,7 +30,7 @@
   staan alleen in `localStorage` van de browser (`energie_contracts_v1`, `energie_termijnen_v1`,
   `energie_hist_v1`, `energie_histtemp_v1`, `energie_gd_v1`, `energie_wp_v1`, `energie_theme_v2`).
   Overzetten tussen apparaten gaat via back-up/contractbestanden (.json) in de app.
-- Kostenmodel: saldering per contract (`auto` = per contractjaar t/m 31-12-2026, daarna per dag;
+- Kostenmodel: saldering per contract (`auto` = per contractjaar t/m 31-12-2026, daarna geen saldering (`geen`);
   `jaar`; `dag`; `geen` = dynamisch, afname en teruglevering elk tegen eigen maandtarief).
   Maandtarieven per contract (`maandTarieven["YYYY-MM"]`) overschrijven de vaste tarieven.
 - Contractnamen worden automatisch gemaakt: leverancier + maand/jaar van de start.
