@@ -145,6 +145,17 @@ def main():
         for f in FIELDS:
             n = sum(1 for r in rows if (r.get(f) or 0) > 0)
             print(f"  {f}: {n} dagen met een waarde > 0")
+        # opbouw van geneste velden (alleen namen en typen, geen waarden)
+        def shape(v, depth=0):
+            if isinstance(v, dict):
+                return "{" + ", ".join(f"{k}: {shape(x, depth + 1)}" for k, x in sorted(v.items())) + "}" if depth < 4 else "{...}"
+            if isinstance(v, list):
+                return "[" + (shape(v[0], depth + 1) if v else "") + f"] ({len(v)}x)"
+            return type(v).__name__
+        sample = next((r for r in reversed(rows) if r.get("producerPerformanceStatistics")), None)
+        print("  producerPerformanceStatistics: " + (shape(sample["producerPerformanceStatistics"]) if sample else "leeg"))
+        n_pps = sum(1 for r in rows if r.get("producerPerformanceStatistics"))
+        print(f"  producerPerformanceStatistics gevuld op {n_pps} dagen")
         if not args.test:
             print("  (opslaan volgt pas na akkoord over privacy; nu alleen getest)")
 
