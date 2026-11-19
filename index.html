@@ -430,6 +430,9 @@
     .mini-table td { padding: 3px 4px; border-top: 1px solid var(--border); }
     .mini-table input { width: 100%; min-width: 60px; padding: 5px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.82rem; }
     #contractListTable tr.sel td { background: var(--elec-soft); }
+    .chk-ok { color: var(--elec); font-weight: 700; white-space: nowrap; }
+    .chk-warn { font-weight: 600; font-size: 0.76rem; }
+    .chk-rm { color: #dc2626; } .chk-fix { color: var(--accent); } .chk-warn div.chk-warn, .chk-warn .chk-warn { color: var(--gas); }
     #contractListTable tbody tr { cursor: pointer; }
     .del-btn { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 1rem; }
     textarea.mail-input { width: 100%; min-height: 160px; padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.8rem; font-family: inherit; }
@@ -590,15 +593,23 @@
       <button id="delContractBtn" style="display:none;"></button>
 
       <div class="section-title" style="margin-top:0;">Mijn contracten</div>
+      <div class="row-actions" style="margin-bottom:6px;">
+        <div class="seg-group" id="contractFilter">
+          <button class="seg-btn active" data-f="alle" type="button">Alle</button>
+          <button class="seg-btn" data-f="ok" type="button">Alleen energiecontracten</button>
+          <button class="seg-btn" data-f="twijfel" type="button">Twijfelgevallen</button>
+        </div>
+        <span class="hint" id="contractFilterInfo" style="margin:0;"></span>
+      </div>
       <div class="table-scroll" style="margin-bottom:8px;">
         <table class="mini-table" id="contractListTable">
-          <thead><tr><th><input type="checkbox" id="contractSelAll" title="Alles selecteren" /></th><th>Contract</th><th>Periode</th><th>Saldering</th><th></th></tr></thead>
+          <thead><tr><th><input type="checkbox" id="contractSelAll" title="Alle zichtbare selecteren" /></th><th>Contract</th><th>Periode</th><th>Saldering</th><th>Controle</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
       <div class="row-actions">
         <button class="icon-btn" id="delSelectedBtn">🗑 Aangevinkte verwijderen</button>
-        <span class="hint" style="margin:0;">Klik op een contract om het hieronder te bewerken; ✕ verwijdert één contract.</span>
+        <span class="hint" style="margin:0;">Klik op een contract om het te bewerken; ✕ verwijdert één contract.<br>🗑 = waarschijnlijk geen contract of dubbel (bij "Twijfelgevallen" selecteert het vinkje bovenaan alleen deze) · ✏️ = onvolledig, aanvullen · ⚠ = controleren</span>
       </div>
 
       <div class="section-title">Contract toevoegen</div>
@@ -616,7 +627,7 @@
         <button class="add-option" id="addContractBtn" type="button">
           <span class="ao-icon">✏️</span>
           <span class="ao-title">Zelf invullen</span>
-          <span class="ao-text">Je hebt geen bestand. Er komt een nieuw contract bij (een kopie van het geselecteerde) en jij past datums en tarieven aan.</span>
+          <span class="ao-text">Je hebt geen bestand. Er komt een nieuw contract bij; jij vult de leverancier, datums en tarieven in (de tarieven van het geselecteerde contract staan alvast ingevuld).</span>
         </button>
       </div>
       <input type="file" id="pdfFileInput" accept="application/pdf" style="display:none;" />
@@ -1434,18 +1445,53 @@
   }
 
   const SALDERING_LBL = { auto: "automatisch", jaar: "per jaar", dag: "per dag", geen: "geen (dynamisch)" };
+  let contractFilter = "alle";
+  const DEFAULT_KEYS = ["elecPeak", "elecOffPeak", "gasRate", "fixedSupplyDay", "gridDay"];
+  // Controle per contract. Soorten: "rm" = waarschijnlijk geen contract / dubbel (veilig te verwijderen),
+  // "fix" = onvolledig (aanvullen), "warn" = let op.
+  function contractIssues(c, all) {
+    const r = [], lev = String(c.leverancier || "").trim();
+    if (c.bron === "pdf" && !c.pdfStart) r.push({ t: "rm", m: "uit PDF zonder contractdatum — waarschijnlijk een rekening of overzicht, geen contract" });
+    if (!lev) r.push({ t: "fix", m: "energieleverancier invullen" });
+    else if (/_|\.pdf|\d{5,}|rekening|overzicht|factuur|nota\b|tarieven|contractbevestiging|overeenkomst|document|scan|bijlage|specificatie|voorschot|termijn/i.test(lev))
+      r.push({ t: "rm", m: "naam is een bestandsnaam, geen leverancier" });
+    if (DEFAULT_KEYS.every(k => Math.abs((+c[k] || 0) - TARIFF_DEFAULTS[k]) < 1e-9) && !Object.keys(c.maandTarieven || {}).length)
+      r.push({ t: "fix", m: "tarieven invullen (nu standaardwaarden)" });
+    const first = all.find(o => o.naam === c.naam && o.start === c.start);
+    if (first && first !== c) r.push({ t: "rm", m: "dubbel (kopie van een ander contract)" });
+    else {
+      const ov = all.find(o => o !== c && o.start <= (c.end || "9999") && c.start <= (o.end || "9999") && !(o.naam === c.naam && o.start === c.start));
+      if (ov) r.push({ t: "warn", m: "overlapt met " + ov.naam + " — controleer de datums" });
+    }
+    return r;
+  }
   function renderContractList() {
     const tb = document.querySelector("#contractListTable tbody");
     tb.innerHTML = "";
+    let nOk = 0, nWarn = 0;
     draft.slice().sort((a, b) => (a.start < b.start ? 1 : -1)).forEach(c => {
+      const issues = contractIssues(c, draft);
+      const removable = issues.some(x => x.t === "rm");
+      if (issues.length) nWarn++; else nOk++;
+      if (contractFilter === "ok" && issues.length) return;
+      if (contractFilter === "twijfel" && !issues.length) return;
       const tr = document.createElement("tr");
       if (c.id === selId) tr.className = "sel";
       const td0 = document.createElement("td"), cb = document.createElement("input");
-      cb.type = "checkbox"; cb.dataset.id = c.id; cb.onclick = ev => ev.stopPropagation();
+      cb.type = "checkbox"; cb.dataset.id = c.id; cb.dataset.rm = removable ? "1" : ""; cb.onclick = ev => ev.stopPropagation();
       td0.appendChild(cb); tr.appendChild(td0);
       [c.naam, fmtDate(c.start) + " – " + (c.end ? fmtDate(c.end) : "heden"), SALDERING_LBL[c.saldering || "auto"] || c.saldering].forEach(v => {
         const td = document.createElement("td"); td.textContent = v; tr.appendChild(td);
       });
+      const tdc = document.createElement("td");
+      if (!issues.length) { tdc.className = "chk-ok"; tdc.textContent = "✓ energiecontract"; }
+      else {
+        tdc.className = "chk-warn";
+        const icon = { rm: "🗑 ", fix: "✏️ ", warn: "⚠ " };
+        tdc.innerHTML = issues.map(x => '<div class="chk-' + x.t + '"></div>').join("");
+        [...tdc.children].forEach((d, i) => d.textContent = icon[issues[i].t] + issues[i].m);
+      }
+      tr.appendChild(tdc);
       const tdd = document.createElement("td"), del = document.createElement("button");
       del.className = "del-btn"; del.textContent = "✕"; del.title = "Verwijder dit contract";
       del.onclick = ev => { ev.stopPropagation(); deleteContracts([c.id]); };
@@ -1454,6 +1500,8 @@
       tb.appendChild(tr);
     });
     document.getElementById("contractSelAll").checked = false;
+    document.getElementById("contractFilterInfo").textContent = nOk + " energiecontract(en)" + (nWarn ? ", " + nWarn + " twijfelgeval(len)" : "");
+    if (!tb.children.length) { const tr = document.createElement("tr"); tr.innerHTML = '<td colspan="6" style="color:var(--muted)">Geen contracten in deze selectie.</td>'; tb.appendChild(tr); }
   }
   function deleteContracts(ids) {
     if (!ids.length) return;
@@ -1510,8 +1558,17 @@
     if (!ids.length) { alert("Vink eerst de contracten aan die je wilt verwijderen."); return; }
     deleteContracts(ids);
   };
+  document.querySelectorAll("#contractFilter .seg-btn").forEach(btn => {
+    btn.onclick = () => {
+      contractFilter = btn.dataset.f;
+      document.querySelectorAll("#contractFilter .seg-btn").forEach(b => b.classList.toggle("active", b === btn));
+      renderContractList();
+    };
+  });
   document.getElementById("contractSelAll").onchange = ev => {
-    document.querySelectorAll("#contractListTable tbody input[type=checkbox]").forEach(x => x.checked = ev.target.checked);
+    document.querySelectorAll("#contractListTable tbody input[type=checkbox]").forEach(x => {
+      x.checked = ev.target.checked && (contractFilter !== "twijfel" || x.dataset.rm === "1");
+    });
   };
   document.getElementById("addTariffMonthBtn").onclick = () => {
     const m = document.getElementById("newTariffMonth").value;
@@ -1551,6 +1608,7 @@
       const c = newContract(Object.assign({}, selContract(), { naam: file.name.replace(/\.pdf$/i, ""), start: todayKey(), end: "", maandTarieven: {}, saldering: "auto" }, found));
       c.id = "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); // altijd een nieuw id
       c.leverancier = found.naam || supplierFromName(file.name.replace(/\.pdf$/i, "")) || "";
+      c.bron = "pdf"; c.pdfStart = !!found.start;
       c.naam = autoName(c);
       draft.push(c); selId = c.id;
       fillForm();
