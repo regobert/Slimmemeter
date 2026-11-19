@@ -1,32 +1,16 @@
 # Mijn Energie Dashboard — instructies voor Claude
 
-## ▶️ Eerst doen bij de start van een nieuwe sessie
+## Remeha Elga Ace (warmtepomp) — afgerond
 
-**Openstaande taak: Remeha Elga Ace-koppeling opzetten.** De gebruiker heeft gevraagd dit bij de
-volgende start op te pakken. Meld aan het begin van de sessie dat je hiermee begint, tenzij de
-gebruiker iets anders vraagt. Haal deze sectie weg zodra de taak is afgerond.
-
-Plan (afgesproken met de gebruiker):
-1. Vraag de gebruiker om twee GitHub-repository-secrets aan te maken (niet in de chat plakken!):
-   `REMEHA_EMAIL` en `REMEHA_PASSWORD` (Settings → Secrets and variables → Actions → Repository secrets).
-   Let op: bij `SLIMME_METER_RJE` werd eerder per ongeluk de hele `.env`-regel als waarde geplakt;
-   vraag om alleen de waarde, en maak het script daar tolerant voor.
-2. Er is geen officiële Remeha-API. Gebruik de (reverse-engineered) Remeha Home cloud-API zoals
-   gedocumenteerd in https://github.com/msvisser/remeha_home (inlogflow en endpoints daar nalezen,
-   niet uit het hoofd). Ook bruikbaar als referentie: de Homey-app "Remeha Home".
-3. Schrijf `scripts/remeha.py` en voeg een stap toe aan `.github/workflows/energiedata.yml`
-   (zelfde nachtelijke run). Doel: per dag het energieverbruik/de opgewekte warmte van de
-   warmtepomp (verwarming en warm water) en, indien beschikbaar, COP. Sla op in een apart bestand
-   (bijv. `remeha_data.js`), niet in `alle_data.js`.
-4. Test eerst één handmatige run en bekijk wat de API teruggeeft vóór je het dashboard aanpast.
-   Bekend risico: bij een hybride (Elga Ace) kan het energiecijfer gas en stroom combineren.
-5. **Privacy:** de repository is openbaar. Bespreek met de gebruiker of warmtepompdata publiek
-   mag staan voordat je data commit.
-6. Daarna: verwerken in **📊 Inzichten** (warmtepompverbruik naast totale afname, COP per maand).
-   Warmtepomp in gebruik sinds november 2023.
-
-Alternatieven als de cloud-API niet werkt: slimme stekker (Shelly) op de buitenunit, of
-Modbus-gateway GTW-08 (houthacker/remeha-modbus).
+- `scripts/remeha.py` logt in op de (onofficiële) Remeha Home cloud-API (aanpak van
+  msvisser/remeha_home) en schrijft dagwaarden naar `remeha_data.js`
+  (`window.REMEHA_DATA = {"JJJJ-MM-DD": {in, uit, wp_in, wp_uit, ketel_in, ketel_uit, ketel_ww_in, ...}}`, kWh;
+  wp = warmtepomp/stroom, ketel = cv-ketel/gas, *_in = verbruikt, *_uit = geleverde warmte).
+- Draait als stap in `energiedata.yml` (`continue-on-error`), secrets `REMEHA_EMAIL` / `REMEHA_PASSWORD`.
+  `remeha-test.yml` = handmatige test die alleen structuur logt (Actions-logs zijn openbaar).
+- De gebruiker heeft gekozen: warmtepompdata mag openbaar in de repository (net als de meterdata).
+- Weergave: 📊 Inzichten → "Warmtepomp (Remeha)" (aandeel WP, COP, WP-stroom t.o.v. afname, ketelgas).
+- Warm water komt bij deze hybride van de cv-ketel (hotWater-velden zijn 0).
 
 ## Project in het kort
 

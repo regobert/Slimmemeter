@@ -30,11 +30,19 @@ jobs:
           SMP_API_KEY: ${{ secrets.SLIMME_METER_RJE || secrets.SMP_API_KEY }}
         run: python scripts/update_data.py
 
+      - name: Remeha warmtepomp ophalen
+        continue-on-error: true   # lukt dit niet, dan gaat de meterdata gewoon door
+        env:
+          REMEHA_EMAIL: ${{ secrets.REMEHA_EMAIL }}
+          REMEHA_PASSWORD: ${{ secrets.REMEHA_PASSWORD }}
+        run: python scripts/remeha.py
+
       - name: Opslaan in repository
         run: |
           git config user.name "energiedata-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add alle_data.js
+          if [ -f remeha_data.js ]; then git add remeha_data.js; fi
           if git diff --cached --quiet; then
             echo "Geen nieuwe gegevens."
           else

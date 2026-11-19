@@ -6,8 +6,10 @@ https://github.com/msvisser/remeha_home (custom_components/remeha_home/api.py).
 Gebruik (GitHub Actions of lokaal):
     REMEHA_EMAIL=... REMEHA_PASSWORD=... python scripts/remeha.py --test
 
---test   logt alleen de structuur (velden, aantal dagen, periode) — geen verbruikscijfers,
-         want Actions-logs van een openbare repository zijn openbaar. Er wordt niets opgeslagen.
+Zonder --test: werkt remeha_data.js bij (dagwaarden in kWh; wp = warmtepomp/stroom,
+ketel = cv-ketel/gas; *_in = verbruikte energie, *_uit = geleverde warmte, ww = warm water).
+--test   logt alleen de structuur — geen verbruikscijfers, want Actions-logs van een openbare
+         repository zijn openbaar — en slaat niets op.
 """
 import argparse
 import base64
@@ -18,6 +20,8 @@ import secrets
 import sys
 import urllib.parse
 from datetime import date, datetime, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -27,6 +31,8 @@ CLIENT_ID = "6ce007c6-0628-419e-88f4-bee2e6418eec"
 REDIRECT = "com.b2c.remehaapp://login-callback"
 API = "https://api.bdrthermea.net/Mobile/api"
 SUBSCRIPTION_KEY = "df605c5470d846fc91e848b1cc653ddf"  # publieke sleutel van de Remeha Home-app
+DATA_FILE = Path(__file__).resolve().parent.parent / "remeha_data.js"
+PREFIX = "window.REMEHA_DATA = "
 FIELDS = ["heatingEnergyConsumed", "hotWaterEnergyConsumed", "coolingEnergyConsumed",
           "heatingEnergyDelivered", "hotWaterEnergyDelivered", "coolingEnergyDelivered"]
 
@@ -105,10 +111,64 @@ def daily(session, token, appliance_id, start, end):
     return out
 
 
+def classify(p):
+    """Warmtepomp ('wp', stroom) of cv-ketel ('ketel', gas) op basis van energyType/producerType."""
+    t = f"{p.get('energyType', '')} {p.get('producerType', '')}".lower()
+    if "elec" in t or "pump" in t or "heatpump" in t or "hp" == t.strip():
+        return "wp"
+    if "gas" in t or "boiler" in t or "ketel" in t:
+        return "ketel"
+    return None
+
+
+def day_key(ts):
+    """timeStamp -> 'JJJJ-MM-DD' in Nederlandse tijd."""
+    s = str(ts or "")
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.tzinfo:
+            dt = dt.astimezone(ZoneInfo("Europe/Amsterdam"))
+        return dt.date().isoformat()
+    except ValueError:
+        return s[:10]
+
+
+def to_day(r):
+    """Compacte dagwaarden (kWh). wp = warmtepomp (stroom), ketel = cv-ketel (gas)."""
+    num = lambda v: float(v) if isinstance(v, (int, float)) else 0.0
+    d = {"in": num(r.get("heatingEnergyConsumed")) + num(r.get("hotWaterEnergyConsumed")),
+         "uit": num(r.get("heatingEnergyDelivered")) + num(r.get("hotWaterEnergyDelivered"))}
+    for p in (r.get("producerPerformanceStatistics") or {}).get("producers") or []:
+        k = classify(p)
+        if not k:
+            continue
+        d[k + "_in"] = d.get(k + "_in", 0) + num(p.get("energyConsumptionCH"))
+        d[k + "_uit"] = d.get(k + "_uit", 0) + num(p.get("energyProductionCH"))
+        d[k + "_ww_in"] = d.get(k + "_ww_in", 0) + num(p.get("energyConsumptionDHW"))
+        d[k + "_ww_uit"] = d.get(k + "_ww_uit", 0) + num(p.get("energyProductionDHW"))
+    return {k: round(v, 3) for k, v in d.items() if v}
+
+
+def lees_data():
+    if not DATA_FILE.exists():
+        return {}
+    t = DATA_FILE.read_text(encoding="utf-8").strip()
+    if t.startswith(PREFIX):
+        t = t[len(PREFIX):]
+    return json.loads(t.rstrip(";") or "{}")
+
+
+def schrijf_data(data):
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        f.write(PREFIX)
+        json.dump({k: data[k] for k in sorted(data)}, f, ensure_ascii=False, separators=(",", ":"))
+        f.write(";")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--test", action="store_true", help="alleen structuur loggen, niets opslaan")
-    ap.add_argument("--van", default="2023-11-01", help="begindatum (JJJJ-MM-DD)")
+    ap.add_argument("--van", default="2023-11-01", help="vroegste begindatum (JJJJ-MM-DD)")
     args = ap.parse_args()
 
     email, password = secret("REMEHA_EMAIL"), secret("REMEHA_PASSWORD")
@@ -121,43 +181,50 @@ def main():
     print("Ingelogd bij Remeha Home.")
 
     dash = api_get(session, token, "/homes/dashboard")
-    appliances = dash.get("appliances") or []
-    print(f"Toestellen gevonden: {len(appliances)}")
-    start, end = date.fromisoformat(args.van), date.today() - timedelta(days=1)
+    appliances = [a for a in (dash.get("appliances") or []) if a.get("capabilityEnergyConsumption", True)]
+    print(f"Toestellen met energiegegevens: {len(appliances)}")
+    if not appliances:
+        return
 
-    for i, app in enumerate(appliances, 1):
-        aid = app.get("applianceId")
-        try:
-            tech = api_get(session, token, f"/appliances/{aid}/technicaldetails")
-            model = tech.get("applianceName", "?")
-        except requests.HTTPError:
-            model = "?"
-        print(f"Toestel {i}: model {model}; velden in dashboard: {', '.join(sorted(app.keys()))}")
+    data = {} if args.test else lees_data()
+    end = date.today() - timedelta(days=1)
+    start = date.fromisoformat(args.van)
+    if data and not args.test:
+        start = max(start, date.fromisoformat(max(data)) - timedelta(days=7))  # laatste week opnieuw (late correcties)
+    print(f"Ophalen {start} t/m {end}")
 
-        rows = daily(session, token, aid, start, end)
-        print(f"  Dagwaarden: {len(rows)} records")
-        if not rows:
-            continue
-        keys = sorted({k for r in rows for k in r.keys()})
-        print(f"  Velden per dag: {', '.join(keys)}")
-        dates = sorted(str(r.get("timeStamp") or r.get("date") or r.get("startDate") or "")[:10] for r in rows)
-        print(f"  Periode: {dates[0]} t/m {dates[-1]}")
-        for f in FIELDS:
-            n = sum(1 for r in rows if (r.get(f) or 0) > 0)
-            print(f"  {f}: {n} dagen met een waarde > 0")
-        # opbouw van geneste velden (alleen namen en typen, geen waarden)
-        def shape(v, depth=0):
-            if isinstance(v, dict):
-                return "{" + ", ".join(f"{k}: {shape(x, depth + 1)}" for k, x in sorted(v.items())) + "}" if depth < 4 else "{...}"
-            if isinstance(v, list):
-                return "[" + (shape(v[0], depth + 1) if v else "") + f"] ({len(v)}x)"
-            return type(v).__name__
-        sample = next((r for r in reversed(rows) if r.get("producerPerformanceStatistics")), None)
-        print("  producerPerformanceStatistics: " + (shape(sample["producerPerformanceStatistics"]) if sample else "leeg"))
-        n_pps = sum(1 for r in rows if r.get("producerPerformanceStatistics"))
-        print(f"  producerPerformanceStatistics gevuld op {n_pps} dagen")
-        if not args.test:
-            print("  (opslaan volgt pas na akkoord over privacy; nu alleen getest)")
+    nieuw = {}
+    for app in appliances:
+        rows = daily(session, token, app.get("applianceId"), start, end)
+        print(f"  Dagwaarden ontvangen: {len(rows)}")
+        if args.test:
+            types = sorted({f"{p.get('producerType')}/{p.get('energyType')}" for r in rows
+                            for p in (r.get("producerPerformanceStatistics") or {}).get("producers") or []})
+            print(f"  Producenten (type/energie): {', '.join(types)} -> " +
+                  ", ".join(f"{t}={classify({'producerType': t.split('/')[0], 'energyType': t.split('/')[1]})}" for t in types))
+        for r in rows:
+            k = day_key(r.get("timeStamp"))
+            v = to_day(r)
+            if not k or not v:
+                continue
+            if k in nieuw:  # meerdere toestellen: optellen
+                for f, x in v.items():
+                    nieuw[k][f] = round(nieuw[k].get(f, 0) + x, 3)
+            else:
+                nieuw[k] = v
+
+    if args.test:
+        velden = sorted({f for v in nieuw.values() for f in v})
+        print(f"  Dagen met gegevens: {len(nieuw)}; velden: {', '.join(velden)} (test: niets opgeslagen)")
+        return
+
+    gewijzigd = sum(1 for k, v in nieuw.items() if data.get(k) != v)
+    data.update(nieuw)
+    if gewijzigd:
+        schrijf_data(data)
+        print(f"remeha_data.js bijgewerkt: {gewijzigd} dag(en), nu {len(data)} dagen t/m {max(data)}")
+    else:
+        print("Geen wijzigingen.")
 
 
 if __name__ == "__main__":

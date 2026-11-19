@@ -7,6 +7,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="alle_data.js"></script>
+  <script src="remeha_data.js"></script>
   <style>
     :root {
       --bg: #f4f6f9;
@@ -804,6 +805,17 @@
     <div class="table-scroll">
       <table class="mini-table" id="seasonTable">
         <thead><tr><th>Seizoen</th><th class="num">Gas m³</th><th class="num">Afname kWh</th><th class="num">Graaddagen</th><th class="num">Gas / 1.000 GD</th><th class="num">Stroom / 1.000 GD</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="section-title">Warmtepomp (Remeha)</div>
+    <div class="hint" id="hpHint">Dagwaarden uit de Remeha Home-app. Warmtepomp = stroom, cv-ketel = gas (1 m³ ≈ 9,77 kWh). COP = geleverde warmte ÷ verbruikte stroom.</div>
+    <div class="ins-summary" id="hpSummary"></div>
+    <div class="ins-chart"><canvas id="hpChart"></canvas></div>
+    <div class="table-scroll">
+      <table class="mini-table" id="hpTable">
+        <thead><tr><th>Maand</th><th class="num">WP stroom kWh</th><th class="num">WP warmte kWh</th><th class="num">COP</th><th class="num">Ketel gas m³</th><th class="num">Ketel warmte kWh</th><th class="num">Aandeel WP</th><th class="num">WP van afname</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -2204,6 +2216,8 @@
       });
     }
 
+    renderHeatpump(T);
+
     // ---- Afwijkingen ----
     const ab = document.querySelector("#anomalyTable tbody"); ab.innerHTML = "";
     const full = Object.keys(T).filter(m => T[m].complete);
@@ -2231,6 +2245,82 @@
       const td = cell(tr, ""); const b = document.createElement("span");
       b.className = "badge " + (r.low ? "warn" : "ok"); b.textContent = r.low ? "laag" : "hoog"; td.appendChild(b);
       ab.appendChild(tr);
+    });
+  }
+
+  /* ---- Warmtepomp (Remeha) ---- */
+  const REMEHA = window.REMEHA_DATA || {};
+  const GAS_KWH_PER_M3 = 9.77;
+  let hpChart = null;
+  function hpMonths() {
+    const M = {};
+    Object.keys(REMEHA).forEach(k => {
+      const m = k.slice(0, 7), d = REMEHA[k];
+      M[m] = M[m] || { wpIn: 0, wpUit: 0, ketelIn: 0, ketelUit: 0, ketelWw: 0, days: 0 };
+      const x = M[m];
+      x.wpIn += d.wp_in || 0; x.wpUit += d.wp_uit || 0;
+      x.ketelIn += d.ketel_in || 0; x.ketelUit += d.ketel_uit || 0; x.ketelWw += d.ketel_ww_in || 0; x.days++;
+    });
+    return M;
+  }
+  function renderHeatpump(T) {
+    const box = ["hpSummary", "hpChart", "hpTable"].map(id => document.getElementById(id));
+    const M = hpMonths(), months = Object.keys(M).sort();
+    const sum = document.getElementById("hpSummary"); sum.innerHTML = "";
+    const tb = document.querySelector("#hpTable tbody"); tb.innerHTML = "";
+    if (hpChart) { hpChart.destroy(); hpChart = null; }
+    if (!months.length) {
+      document.getElementById("hpHint").textContent = "Nog geen warmtepompgegevens. Die komen binnen na de eerstvolgende nachtelijke run (of start 'Energiedata bijwerken' handmatig in GitHub).";
+      box[1].parentElement.style.display = "none"; box[2].parentElement.style.display = "none";
+      return;
+    }
+    box[1].parentElement.style.display = ""; box[2].parentElement.style.display = "";
+    const fmt0 = v => nf0.format(v), pct = v => isFinite(v) ? nf0.format(v * 100) + "%" : "–", cop = v => isFinite(v) && v > 0 ? nf2.format(v) : "–";
+    const agg = list => list.reduce((a, m) => { const x = M[m]; if (!x) return a;
+      a.wpIn += x.wpIn; a.wpUit += x.wpUit; a.ketelIn += x.ketelIn + x.ketelWw; a.ketelUit += x.ketelUit;
+      a.afn += (T[m] ? T[m].afn : 0); a.gas += (T[m] ? T[m].gas : 0); return a; }, { wpIn: 0, wpUit: 0, ketelIn: 0, ketelUit: 0, afn: 0, gas: 0 });
+    const card = (lbl, val, sub) => { const d = document.createElement("div"); d.className = "ins-card"; d.innerHTML = '<div class="lbl"></div><div class="val"></div><div class="sub"></div>'; d.children[0].textContent = lbl; d.children[1].textContent = val; d.children[2].textContent = sub || ""; sum.appendChild(d); };
+    // stookseizoenen okt-apr
+    const seasonOf = m => { const y = +m.slice(0, 4), mo = +m.slice(5); return mo >= 10 ? y : (mo <= 4 ? y - 1 : null); };
+    const seasons = {};
+    months.forEach(m => { const y = seasonOf(m); if (y !== null) (seasons[y] = seasons[y] || []).push(m); });
+    const ys = Object.keys(seasons).map(Number).sort();
+    const lastFull = ys.filter(y => seasons[y].length === 7).pop();
+    const current = ys[ys.length - 1];
+    [[lastFull, "stookseizoen " + lastFull + "/" + String(lastFull + 1).slice(2)], [current !== lastFull ? current : null, "lopend seizoen " + current + "/" + String(current + 1).slice(2)]].forEach(([y, lbl]) => {
+      if (y === null || y === undefined) return;
+      const a = agg(seasons[y]), heat = a.wpUit + a.ketelUit;
+      card("Aandeel warmtepomp — " + lbl, pct(a.wpUit / heat), fmt0(a.wpUit) + " van " + fmt0(heat) + " kWh warmte");
+      card("COP warmtepomp — " + lbl, cop(a.wpUit / a.wpIn), fmt0(a.wpIn) + " kWh stroom → " + fmt0(a.wpUit) + " kWh warmte");
+      card("Stroom warmtepomp — " + lbl, fmt0(a.wpIn) + " kWh", a.afn ? pct(a.wpIn / a.afn) + " van je stroomafname (" + fmt0(a.afn) + " kWh)" : "");
+      card("Gas cv-ketel — " + lbl, "≈ " + fmt0(a.ketelIn / GAS_KWH_PER_M3) + " m³", a.gas ? "meter: " + fmt0(a.gas) + " m³ gas in die maanden" : "");
+    });
+    // grafiek: laatste 24 maanden
+    const last = months.slice(-24);
+    if (window.Chart) {
+      const text = cssVar("--muted"), grid = cssVar("--border");
+      hpChart = new Chart(document.getElementById("hpChart"), {
+        data: { labels: last.map(m => MONTHS_SHORT[+m.slice(5) - 1] + " '" + m.slice(2, 4)), datasets: [
+          { type: "bar", label: "Warmte warmtepomp (kWh)", data: last.map(m => +M[m].wpUit.toFixed(1)), backgroundColor: cssVar("--elec"), stack: "w", yAxisID: "y", order: 2 },
+          { type: "bar", label: "Warmte cv-ketel (kWh)", data: last.map(m => +M[m].ketelUit.toFixed(1)), backgroundColor: cssVar("--gas"), stack: "w", yAxisID: "y", order: 2 },
+          { type: "line", label: "COP warmtepomp", data: last.map(m => M[m].wpIn > 0 ? +(M[m].wpUit / M[m].wpIn).toFixed(2) : null), borderColor: cssVar("--temp"), backgroundColor: cssVar("--temp"), borderDash: [5, 4], borderWidth: 1.5, pointRadius: 2, spanGaps: true, yAxisID: "y1", order: 1 }
+        ] },
+        options: { responsive: true, maintainAspectRatio: false, animation: { duration: 200 }, interaction: { mode: "index", intersect: false },
+          plugins: { legend: { labels: { color: text, boxWidth: 12, font: { size: 11 } } } },
+          scales: { x: { stacked: true, ticks: { color: text, maxRotation: 0, autoSkip: true }, grid: { display: false } },
+                    y: { stacked: true, ticks: { color: text }, grid: { color: grid }, title: { display: true, text: "kWh warmte", color: text } },
+                    y1: { position: "right", min: 0, ticks: { color: cssVar("--temp") }, grid: { drawOnChartArea: false }, title: { display: true, text: "COP", color: text } } } }
+      });
+    }
+    // tabel
+    months.slice().reverse().forEach(m => {
+      const x = M[m], heat = x.wpUit + x.ketelUit, afn = T[m] ? T[m].afn : 0;
+      const tr = document.createElement("tr");
+      [fmtMonth(m), fmt0(x.wpIn), fmt0(x.wpUit), cop(x.wpUit / x.wpIn), nf1.format((x.ketelIn + x.ketelWw) / GAS_KWH_PER_M3), fmt0(x.ketelUit),
+       heat > 0 ? pct(x.wpUit / heat) : "–", afn > 0 ? pct(x.wpIn / afn) : "–"].forEach((v, i) => {
+        const td = document.createElement("td"); td.textContent = v; if (i) td.className = "num"; tr.appendChild(td);
+      });
+      tb.appendChild(tr);
     });
   }
 
