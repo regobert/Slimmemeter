@@ -628,7 +628,7 @@
       </div>
       <div class="table-scroll" style="margin-bottom:8px;">
         <table class="mini-table" id="contractListTable">
-          <thead><tr><th><input type="checkbox" id="contractSelAll" title="Alle zichtbare selecteren" /></th><th>Contract</th><th>Periode</th><th>Saldering</th><th>Controle</th><th></th><th></th></tr></thead>
+          <thead><tr><th><input type="checkbox" id="contractSelAll" title="Alle zichtbare selecteren" /></th><th>Contract</th><th>Periode</th><th>Soort</th><th>Controle</th><th></th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -666,6 +666,14 @@
           <label>Energieleverancier</label>
           <input type="text" id="cfgName" placeholder="bijv. Greenchoice" />
           <div class="hint" id="autoNameHint" style="margin:3px 0 0;"></div>
+        </div>
+        <div class="field">
+          <label>Soort contract</label>
+          <select id="cfgSoort">
+            <option value="vast">Vast — tarieven staan vast voor de looptijd</option>
+            <option value="variabel">Variabel — tarieven kunnen tussentijds wijzigen</option>
+            <option value="dynamisch">Dynamisch — prijzen per uur/dag, per maand verrekend</option>
+          </select>
         </div>
         <div class="field">
           <label>Tariefsoort stroom</label>
@@ -741,6 +749,8 @@
         </div>
       </div>
 
+      <div class="hint" id="vastHint" style="margin-top:12px;">Vast contract: de tarieven hierboven gelden voor de hele looptijd. (Overheidsheffingen en netbeheer kunnen per 1 januari wijzigen.)</div>
+      <div id="monthTariffBlock">
       <div class="section-title">Maandtarieven (variabel / dynamisch contract)</div>
       <div class="hint">Per maand overschrijven deze tarieven de vaste tarieven hierboven. Lege velden = tarief van het contract. Snel invullen: plak de maandelijkse e-mail van je leverancier op het tabblad "E-mail plakken".</div>
       <table class="mini-table" id="monthTariffTable">
@@ -750,6 +760,7 @@
       <div class="row-actions" style="margin-top:8px;">
         <input type="month" id="newTariffMonth" class="field" style="padding:6px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text);" />
         <button class="icon-btn" id="addTariffMonthBtn">＋ Maand toevoegen</button>
+      </div>
       </div>
     </div>
 
@@ -1037,7 +1048,7 @@
   function tariffsFor(k) {
     const c = contractFor(k);
     const t = Object.assign({}, TARIFF_DEFAULTS, c);
-    const mt = c.maandTarieven || {}, mk = k.slice(0, 7);
+    const mt = (c.soort === "vast" ? {} : c.maandTarieven) || {}, mk = k.slice(0, 7);
     let m = mt[mk];
     if (!m) { // geen tarief voor deze maand: laatst bekende maand ervoor (of anders de eerste erna)
       const ks = Object.keys(mt).sort();
@@ -1580,11 +1591,11 @@
   /* ================= Modal: contracten ================= */
   const modal = document.getElementById("contractModal");
   const CFG_FIELDS = {
-    leverancier: "cfgName", start: "cfgStart", end: "cfgEnd", tariffType: "cfgTariffType", saldering: "cfgSaldering", termijn: "cfgTermijn",
+    leverancier: "cfgName", soort: "cfgSoort", start: "cfgStart", end: "cfgEnd", tariffType: "cfgTariffType", saldering: "cfgSaldering", termijn: "cfgTermijn",
     elecPeak: "cfgElecPeak", elecOffPeak: "cfgElecOffPeak", feedInRate: "cfgFeedInRate", feedInCost: "cfgFeedInCost",
     gasRate: "cfgGasRate", fixedSupplyDay: "cfgFixedSupplyDay", gridDay: "cfgGridDay", taxCreditDay: "cfgTaxCreditDay"
   };
-  const TEXT_FIELDS = ["leverancier", "start", "end", "tariffType", "saldering"];
+  const TEXT_FIELDS = ["leverancier", "soort", "start", "end", "tariffType", "saldering"];
   let draft = null, draftTermijnen = null, selId = null;
   const clone = o => JSON.parse(JSON.stringify(o));
   const selContract = () => draft.find(c => c.id === selId);
@@ -1614,6 +1625,13 @@
     });
     document.getElementById(sel.dataset.for).addEventListener("input", () => updateUnitHint(sel.dataset.for));
   });
+
+  function syncSoort() {
+    const v = document.getElementById("cfgSoort").value || "vast";
+    document.getElementById("monthTariffBlock").style.display = v === "vast" ? "none" : "";
+    document.getElementById("vastHint").style.display = v === "vast" ? "" : "none";
+  }
+  document.getElementById("cfgSoort").addEventListener("change", syncSoort);
 
   function readForm() {
     const c = selContract(); if (!c) return;
@@ -1653,6 +1671,7 @@
     document.getElementById("autoNameHint").textContent = "Naam wordt: " + c.naam + (String(c.leverancier || "").trim() ? "" : " — vul de energieleverancier in");
     Object.entries(CFG_FIELDS).forEach(([k, id]) => { document.getElementById(id).value = c[k] === undefined ? (k === "saldering" ? "auto" : "") : c[k]; });
     document.getElementById("cfgElecOffPeak").disabled = c.tariffType === "single";
+    syncSoort();
     Object.entries(UNIT_FIELDS).forEach(([k, id]) => showUnitValue(id, c[k]));
     // maandtarieven
     const tb = document.querySelector("#monthTariffTable tbody");
@@ -1738,7 +1757,7 @@
       const td0 = document.createElement("td"), cb = document.createElement("input");
       cb.type = "checkbox"; cb.dataset.id = c.id; cb.dataset.rm = removable ? "1" : ""; cb.onclick = ev => ev.stopPropagation();
       td0.appendChild(cb); tr.appendChild(td0);
-      [c.naam, fmtDate(c.start) + " – " + (c.end ? fmtDate(c.end) : "heden"), SALDERING_LBL[c.saldering || "auto"] || c.saldering].forEach(v => {
+      [c.naam, fmtDate(c.start) + " – " + (c.end ? fmtDate(c.end) : "heden"), (c.soort || "vast") + " · saldering " + (SALDERING_LBL[c.saldering || "auto"] || c.saldering)].forEach(v => {
         const td = document.createElement("td"); td.textContent = v; tr.appendChild(td);
       });
       const tdc = document.createElement("td");
@@ -1887,6 +1906,7 @@
       const { out: found, notes } = parseContract(text);
       readForm();
       const dyn = found.dynamisch; delete found.dynamisch;
+      found.soort = dyn ? "dynamisch" : "vast";
       const c = newContract(Object.assign({}, selContract(), { naam: file.name.replace(/\.pdf$/i, ""), start: todayKey(), end: "", maandTarieven: {}, saldering: "auto" }, found));
       c.id = "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); // altijd een nieuw id
       c.leverancier = found.naam || supplierFromName(file.name.replace(/\.pdf$/i, "")) || "";
@@ -2068,8 +2088,13 @@
     }
     readForm();
     const msgs = [];
+    const cMail = res.rates ? contractFor(res.month + "-15", draft) : null;
+    if (res.rates && cMail.soort === "vast") {
+      msgs.push("Tarieven niet overgenomen: " + cMail.naam + " is een vast contract");
+      res.rates = null;
+    }
     if (res.rates) {
-      const c = contractFor(res.month + "-15", draft);
+      const c = cMail;
       c.maandTarieven = c.maandTarieven || {};
       c.maandTarieven[res.month] = Object.assign({}, c.maandTarieven[res.month] || {}, res.rates);
       const r = res.rates;
@@ -2551,6 +2576,7 @@
   }
   function normalizeContract(c) {
     if (c.leverancier === undefined) c.leverancier = supplierFromName(c.naam);
+    if (!c.soort) c.soort = c.saldering === "geen" ? "dynamisch" : (Object.keys(c.maandTarieven || {}).length ? "variabel" : "vast");
     c.naam = autoName(c);
     return c;
   }

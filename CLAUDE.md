@@ -34,6 +34,8 @@
   `jaar`; `dag`; `geen` = dynamisch, afname en teruglevering elk tegen eigen maandtarief).
   Maandtarieven per contract (`maandTarieven["YYYY-MM"]`) overschrijven de vaste tarieven.
 - Contractnamen worden automatisch gemaakt: leverancier + maand/jaar van de start.
+- Contractveld `soort`: `vast` (maandTarieven worden genegeerd en verborgen), `variabel`, `dynamisch`.
+  Bij een vast contract neemt "E-mail plakken" geen tarieven over, alleen termijnbedragen.
 - Bij twijfel over cijfers: vergelijk met de echte nota's; verschil van ~2% op gas komt door de
   calorische correctie (nota's) versus ruwe m³ (Excel/meter).
 
