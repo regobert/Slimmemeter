@@ -326,10 +326,11 @@
     }
     .canvas-wrap {
       position: relative;
-      flex: 1;
-      min-height: 300px;
+      flex: none;
+      height: 340px;
       width: 100%;
     }
+    .main-grid { align-items: start; }
     .swipe-hint {
       text-align: center;
       font-size: 0.74rem;
@@ -454,6 +455,8 @@
     .cost-details summary { cursor: pointer; color: var(--accent); font-weight: 600; margin-bottom: 4px; }
     .cost-details td.num { text-align: right; white-space: nowrap; }
     .cost-details tr.tot td { font-weight: 700; }
+    .fc-table td { font-size: 0.74rem; vertical-align: top; }
+    .fc-table td small { display: block; color: var(--muted); font-size: 0.66rem; white-space: nowrap; }
     .cost-details tr.sub td { color: var(--muted); font-size: 0.74rem; padding-top: 8px; font-weight: 700; }
     .cost-details td.pos { color: var(--gas); font-weight: 700; } .cost-details td.neg { color: var(--elec); font-weight: 700; }
     .add-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
@@ -535,6 +538,10 @@
           </div>
           <div class="hint" id="costScopeInfo" style="margin:0 0 4px;"></div>
           <table class="mini-table" id="costTable"><tbody></tbody></table>
+          <div id="forecastMonthsWrap" style="margin-top:8px;">
+            <div class="hint" style="margin:0 0 4px;"><strong>Verwachting per maand</strong> — verwacht verbruik (gemiddelde van dezelfde maand sinds <span id="fcFrom"></span>) × prijs van dat moment.</div>
+            <div class="table-scroll"><table class="mini-table fc-table" id="forecastMonths"><thead><tr><th>Maand</th><th class="num">Afname</th><th class="num">Terug</th><th class="num">Gas</th><th class="num">Vast</th><th class="num">Totaal</th></tr></thead><tbody></tbody></table></div>
+          </div>
         </details>
 
         <div class="forecast-box">
@@ -576,7 +583,7 @@
         <canvas id="energyChart"></canvas>
       </div>
       <div class="chart-note" id="chartNote"></div>
-      <div class="swipe-hint">💡 Veeg links/rechts op de grafiek voor vorige/volgende periode of tik op de tegels om te wisselen</div>
+      <div class="swipe-hint">💡 Dubbeltik op een staaf om in te zoomen · veeg links/rechts voor vorige/volgende periode · tik op de tegels om te wisselen</div>
     </div>
   </div>
 </div>
@@ -1005,7 +1012,13 @@
   function tariffsFor(k) {
     const c = contractFor(k);
     const t = Object.assign({}, TARIFF_DEFAULTS, c);
-    const m = (c.maandTarieven || {})[k.slice(0, 7)] || {};
+    const mt = c.maandTarieven || {}, mk = k.slice(0, 7);
+    let m = mt[mk];
+    if (!m) { // geen tarief voor deze maand: laatst bekende maand ervoor (of anders de eerste erna)
+      const ks = Object.keys(mt).sort();
+      const prev = ks.filter(x => x < mk).pop() || ks[0];
+      m = prev ? mt[prev] : {};
+    }
     RATE_FIELDS.forEach(f => { if (m[f] !== null && m[f] !== undefined && m[f] !== "" && isFinite(m[f])) t[f] = +m[f]; });
     return t;
   }
@@ -1176,7 +1189,7 @@
       for (let k = s; k <= e; k = addDays(k, 1)) {
         const d = DAY[k], dt = toDate(k);
         const lbl = state.mode === "week" ? DAYS_SHORT[dt.getUTCDay()] + " " + dt.getUTCDate() : dt.getUTCDate() + " " + MONTHS_SHORT[dt.getUTCMonth()];
-        out.push({ label: lbl, afn: d ? d.afnHigh + d.afnLow : 0, ret: d ? d.retHigh + d.retLow : 0, gas: d ? d.gas : 0, temp: d ? d.temp : null });
+        out.push({ label: lbl, key: k, afn: d ? d.afnHigh + d.afnLow : 0, ret: d ? d.retHigh + d.retLow : 0, gas: d ? d.gas : 0, temp: d ? d.temp : null });
       }
       return out;
     }
@@ -1184,7 +1197,7 @@
       const me = monthEnd(m.slice(0, 7));
       const r = sumParts(partsIn(m < s ? s : m, me > e ? e : me, true));
       const dt = toDate(m);
-      out.push({ label: MONTHS_SHORT[dt.getUTCMonth()] + " '" + String(dt.getUTCFullYear()).slice(2), afn: r.afn, ret: r.ret, gas: r.gasM3, temp: r.temp });
+      out.push({ label: MONTHS_SHORT[dt.getUTCMonth()] + " '" + String(dt.getUTCFullYear()).slice(2), key: m, month: true, afn: r.afn, ret: r.ret, gas: r.gasM3, temp: r.temp });
     }
     return out;
   }
@@ -1193,6 +1206,24 @@
   let chart = null;
   const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
+  let lastBuckets = [], lastTap = { idx: -1, t: 0 };
+  // Dubbelklik/-tik op een staaf: maand -> maandoverzicht, dag -> dagoverzicht
+  function drillDown(idx) {
+    const bkt = lastBuckets[idx];
+    if (!bkt || !bkt.key || state.mode === "day") return;
+    if (bkt.month) { state.mode = "month"; state.cursorDate = bkt.key; }
+    else { state.mode = "day"; state.cursorDate = bkt.key; }
+    renderAll();
+  }
+  // eigen klikafhandeling op het canvas (Chart.js kan twee snelle klikken samenvoegen)
+  document.getElementById("energyChart").addEventListener("click", ev => {
+    if (!chart || state.mode === "day") return;
+    const hit = chart.getElementsAtEventForMode(ev, "index", { intersect: false }, false);
+    if (!hit.length) return;
+    const idx = hit[0].index, now = Date.now();
+    if (lastTap.idx === idx && now - lastTap.t < 500) { lastTap = { idx: -1, t: 0 }; drillDown(idx); }
+    else lastTap = { idx, t: now };
+  });
   function renderChart(s, e) {
     const b = buildBuckets(s, e);
     const isElec = state.chartType === "elec";
@@ -1216,9 +1247,11 @@
     const histOnly = !hasData && !withHist() && histMonths().some(m => m <= e.slice(0, 7) && m >= s.slice(0, 7));
     note.textContent = histOnly ? "Voor deze periode zijn alleen maandtotalen beschikbaar — kies Maand, Jaar of Alles." : (!hasData ? "Geen gegevens in deze periode." : "");
     note.classList.toggle("show", !hasData);
+    lastBuckets = b;
     const config = {
       data: { labels: b.map(x => x.label), datasets },
       options: {
+        onHover: (ev, els, ch) => { ch.canvas.style.cursor = (state.mode !== "day" && els.length) ? "zoom-in" : "default"; },
         responsive: true, maintainAspectRatio: false, animation: { duration: 250 },
         interaction: { mode: "index", intersect: false },
         plugins: {
@@ -1323,7 +1356,11 @@
       else { const n = k * Math.min(r.v.afn, r.v.ret); credit = -(n * p + (r.v.ret - n) * feed); }
       est.supply += r.v.afn * p; est.credit += credit; est.fcost += r.v.ret * (+t.feedInCost || 0);
       est.gas += r.v.gas * t.gasRate; est.afn += r.v.afn; est.ret += r.v.ret; est.gasM3 += r.v.gas;
+      r.calc = { p, feed, gasRate: +t.gasRate, mode, supply: r.v.afn * p, credit: credit + r.v.ret * (+t.feedInCost || 0),
+                 gas: r.v.gas * t.gasRate, fixed: fx.fSupply + fx.fGrid + fx.fTax };
     });
+    rest.forEach(r => { if (!r.calc) { const t = tariffsFor(r.key), fx = fixedParts(t, r.days); r.calc = { fixed: fx.fSupply + fx.fGrid + fx.fTax }; } });
+    est.rest = rest;
     est.total = est.supply + est.credit + est.fcost + est.gas + est.fSupply + est.fGrid + est.fTax;
     const actualTotal = actual.elec + actual.gas + actual.fixed;
     // termijnen: hele jaar en naar rato tot en met 'ref'
@@ -1355,6 +1392,7 @@
       row("Vermindering energiebelasting", r.fTax);
       row(label, r.elec + r.gas + r.fixed, "tot");
     };
+    document.getElementById("forecastMonthsWrap").style.display = costScope === "jaar" ? "" : "none";
     if (costScope === "periode") {
       document.getElementById("costScopeInfo").textContent = "Periode: " + document.getElementById("periodLabel").textContent;
       if (lastPeriodSum) comp(lastPeriodSum, "Totaal");
@@ -1372,6 +1410,31 @@
     row("Termijnbedragen hele jaar", -y.termijnYear);
     const d = y.termijnYear - y.year;
     row(d >= 0 ? "Verwacht terug te krijgen" : "Verwacht bij te betalen", Math.abs(d), "tot", d >= 0 ? "neg" : "pos");
+    // toelichting per maand
+    document.getElementById("fcFrom").textContent = MONTHS_SHORT[+y.exp.from.slice(5, 7) - 1] + " " + y.exp.from.slice(0, 4);
+    const ftb = document.querySelector("#forecastMonths tbody"); ftb.innerHTML = "";
+    const pr = v => "€ " + nf2.format(v);
+    const cell = (tr, main, sub) => { const td = document.createElement("td"); td.className = "num"; td.textContent = main; if (sub) { const sm = document.createElement("small"); sm.textContent = sub; td.appendChild(sm); } tr.appendChild(td); };
+    let tot = 0;
+    y.est.rest.forEach(r => {
+      const tr = document.createElement("tr"), c = r.calc, td0 = document.createElement("td");
+      td0.textContent = MONTHS_SHORT[+r.m.slice(5) - 1] + " '" + r.m.slice(2, 4) + (r.days < daysInMonth(r.m + "-01") ? " (" + r.days + " d)" : "");
+      tr.appendChild(td0);
+      if (!r.v) { cell(tr, "–", "geen historie"); cell(tr, "–"); cell(tr, "–"); }
+      else {
+        cell(tr, nf0.format(r.v.afn) + " kWh", "× " + pr(c.p) + " = " + pr(c.supply));
+        cell(tr, nf0.format(r.v.ret) + " kWh", (c.mode === "jaar" ? "saldering" : c.mode === "dag" ? "per dag; rest × " + pr(c.feed) : "× " + pr(c.feed)) + " = " + pr(c.credit));
+        cell(tr, nf0.format(r.v.gas) + " m³", "× " + pr(c.gasRate) + " = " + pr(c.gas));
+      }
+      cell(tr, pr(c.fixed));
+      const t = (c.supply || 0) + (c.credit || 0) + (c.gas || 0) + c.fixed; tot += t;
+      cell(tr, pr(t));
+      ftb.appendChild(tr);
+    });
+    const trT = document.createElement("tr"); trT.className = "tot";
+    const tdL = document.createElement("td"); tdL.textContent = "Totaal rest"; tdL.colSpan = 5; trT.appendChild(tdL);
+    const tdV = document.createElement("td"); tdV.className = "num"; tdV.textContent = pr(tot); trT.appendChild(tdV);
+    ftb.appendChild(trT);
   }
   document.querySelectorAll("#costScope .seg-btn").forEach(btn => {
     btn.onclick = () => {
