@@ -473,6 +473,7 @@
     .unit-input select { width: auto; flex: none; }
     .nav-last { width: auto; padding: 0 9px; font-size: 0.85rem; }
     .nav-arrow:disabled { cursor: default; }
+    .cmp-sel { padding: 7px 9px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.86rem; }
   </style>
 </head>
 <body>
@@ -483,6 +484,7 @@
       <span class="app-version" id="appVersion" title="Tijdstip waarop deze versie van het dashboard is gepubliceerd; ververs de pagina als dit niet de nieuwste is"></span>
     </div>
     <div class="top-actions">
+      <button class="icon-btn" id="openCompareBtn">📅 Vergelijken</button>
       <button class="icon-btn" id="openInsightsBtn">📊 Inzichten</button>
       <button class="icon-btn" id="openContractBtn">📄 Contracten & gegevens</button>
       <button class="icon-btn" id="themeToggleBtn">🌙 Donker</button>
@@ -873,6 +875,54 @@
     </div>
     <div class="modal-actions">
       <button class="icon-btn" id="closeInsightsBtnBottom">✕ Sluiten</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="compareModal">
+  <div class="modal wide">
+    <div class="modal-head">
+      <h2>📅 Vergelijken</h2>
+      <button class="icon-btn" id="closeCompareBtn">✕ Sluiten</button>
+    </div>
+
+    <div class="row-actions">
+      <div class="seg-group" id="cmpKind">
+        <button class="seg-btn active" data-k="maand" type="button">Zelfde maand</button>
+        <button class="seg-btn" data-k="seizoen" type="button">Seizoen</button>
+        <button class="seg-btn" data-k="jaar" type="button">Jaren</button>
+      </div>
+      <select id="cmpMonth" class="cmp-sel"></select>
+      <select id="cmpSeason" class="cmp-sel" style="display:none;">
+        <option value="winter">Winter (dec – feb)</option>
+        <option value="lente">Lente (mrt – mei)</option>
+        <option value="zomer">Zomer (jun – aug)</option>
+        <option value="herfst">Herfst (sep – nov)</option>
+        <option value="stook">Stookseizoen (okt – apr)</option>
+      </select>
+      <select id="cmpMetric" class="cmp-sel">
+        <option value="afn">Stroomafname (kWh)</option>
+        <option value="ret">Teruglevering (kWh)</option>
+        <option value="net">Netto stroom (kWh)</option>
+        <option value="gas">Gas (m³)</option>
+        <option value="gasgd">Gas per 1.000 graaddagen (m³)</option>
+        <option value="cost">Kosten (€)</option>
+        <option value="temp">Gemiddelde temperatuur (°C)</option>
+        <option value="gd">Graaddagen</option>
+        <option value="wpshare">Aandeel warmtepomp in warmte (%)</option>
+        <option value="cop">Rendement warmtepomp (COP)</option>
+      </select>
+    </div>
+    <div class="hint" id="cmpInfo"></div>
+    <div class="ins-chart" style="height:280px;"><canvas id="cmpChart"></canvas></div>
+    <div class="table-scroll">
+      <table class="mini-table" id="cmpTable">
+        <thead><tr><th>Periode</th><th class="num">Waarde</th><th class="num">t.o.v. vorige</th><th class="num">t.o.v. gemiddelde</th><th class="num">Temp.</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button class="icon-btn" id="closeCompareBtnBottom">✕ Sluiten</button>
     </div>
   </div>
 </div>
@@ -2615,6 +2665,195 @@
   (function () {
     const d = new Date(document.lastModified);
     if (!isNaN(d)) document.getElementById("appVersion").textContent = "versie " + d.toLocaleString("nl-NL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  })();
+
+  /* ================= Vergelijken ================= */
+  const compareModal = document.getElementById("compareModal");
+  const SEASONS = {   // [maand, jaar-offset] t.o.v. het beginjaar
+    winter: { lbl: "Winter", months: [[12, 0], [1, 1], [2, 1]], split: true },
+    lente: { lbl: "Lente", months: [[3, 0], [4, 0], [5, 0]] },
+    zomer: { lbl: "Zomer", months: [[6, 0], [7, 0], [8, 0]] },
+    herfst: { lbl: "Herfst", months: [[9, 0], [10, 0], [11, 0]] },
+    stook: { lbl: "Stookseizoen", months: [[10, 0], [11, 0], [12, 0], [1, 1], [2, 1], [3, 1], [4, 1]], split: true }
+  };
+  const METRICS = {
+    afn: { lbl: "Stroomafname", unit: "kWh", fmt: v => nf0.format(v), color: "--elec" },
+    ret: { lbl: "Teruglevering", unit: "kWh", fmt: v => nf0.format(v), color: "--return" },
+    net: { lbl: "Netto stroom", unit: "kWh", fmt: v => nf0.format(v), color: "--elec" },
+    gas: { lbl: "Gas", unit: "m³", fmt: v => nf0.format(v), color: "--gas" },
+    gasgd: { lbl: "Gas per 1.000 graaddagen", unit: "m³", fmt: v => nf0.format(v), color: "--gas" },
+    cost: { lbl: "Kosten", unit: "€", fmt: v => euro0(v), color: "--accent" },
+    temp: { lbl: "Gemiddelde temperatuur", unit: "°C", fmt: v => nf1.format(v), color: "--temp", noTempLine: true },
+    gd: { lbl: "Graaddagen", unit: "", fmt: v => nf0.format(v), color: "--temp", noTempLine: true },
+    wpshare: { lbl: "Aandeel warmtepomp", unit: "%", fmt: v => nf0.format(v * 100) + "%", scale: 100, color: "--elec" },
+    cop: { lbl: "Rendement warmtepomp (COP)", unit: "", fmt: v => nf2.format(v), color: "--elec" }
+  };
+  let cmpKind = "maand", cmpChart = null, cmpPeriods = [], cmpTap = { idx: -1, t: 0 };
+
+  // graaddagen (basis 18 °C) tussen s en e
+  function gdIn(s, e) {
+    let tot = 0;
+    for (let m = s.slice(0, 7); m <= e.slice(0, 7); m = addMonths(m + "-01", 1).slice(0, 7)) {
+      const ms = m + "-01" < s ? s : m + "-01", me = monthEnd(m) > e ? e : monthEnd(m);
+      if (DAILY_MONTHS.has(m)) {
+        for (let k = ms; k <= me; k = addDays(k, 1)) { const d = DAY[k]; if (!d || d.temp === null) return null; tot += Math.max(0, GD_BASE - d.temp); }
+      } else {
+        if (degreeDays[m] === undefined) return null;
+        tot += degreeDays[m] * (daysBetween(ms, me) + 1) / daysInMonth(m + "-01");
+      }
+    }
+    return tot;
+  }
+  // warmtepomp (Remeha) tussen s en e
+  function hpIn(s, e) {
+    let wpIn = 0, wpUit = 0, ketelUit = 0, n = 0;
+    for (let k = s; k <= e; k = addDays(k, 1)) {
+      const d = REMEHA[k]; if (!d) continue;
+      if (!(d.wp_in || d.wp_uit || d.ketel_in || d.ketel_uit)) { if (d.uit) return null; continue; }   // niet gesplitst
+      wpIn += d.wp_in || 0; wpUit += d.wp_uit || 0; ketelUit += d.ketel_uit || Math.max(0, (d.uit || 0) - (d.wp_uit || 0)); n++;
+    }
+    return n ? { wpIn, wpUit, ketelUit } : null;
+  }
+
+  // Perioden opbouwen: per jaar een lijst maanden; het lopende jaar/seizoen wordt afgekapt op de laatste gegevensdag
+  // en de andere jaren op dezelfde maand + dag (eerlijke vergelijking).
+  function buildPeriods() {
+    const [first, last] = dataBounds();
+    const ref = ALL_DATES.length ? ALL_DATES[ALL_DATES.length - 1] : last;
+    const y0 = +first.slice(0, 4) - 1, y1 = +ref.slice(0, 4);
+    let def;
+    if (cmpKind === "maand") { const mi = +document.getElementById("cmpMonth").value; def = { lbl: MONTHS_LONG[mi - 1], months: [[mi, 0]] }; }
+    else if (cmpKind === "seizoen") def = SEASONS[document.getElementById("cmpSeason").value];
+    else def = { lbl: "Jaar", months: [...Array(12)].map((_, i) => [i + 1, 0]) };
+    const periods = [];
+    for (let y = y0; y <= y1; y++) {
+      const months = def.months.map(([mo, off]) => (y + off) + "-" + String(mo).padStart(2, "0"));
+      periods.push({ y, months, label: cmpKind === "maand" ? MONTHS_SHORT[def.months[0][0] - 1] + " " + y : def.split ? y + "/" + String(y + 1).slice(2) : String(y) });
+    }
+    // lopende periode: bevat de maand van 'ref'
+    const refM = ref.slice(0, 7), cur = periods.find(p => p.months.includes(refM) && p.months[p.months.length - 1] >= refM);
+    let cutPos = null, cutDay = null;
+    if (cur && (cur.months[cur.months.length - 1] > refM || monthEnd(refM) > ref)) { cutPos = cur.months.indexOf(refM); cutDay = +ref.slice(8, 10); cur.ongoing = true; }
+    periods.forEach(p => {
+      p.segs = [];
+      p.months.forEach((m, i) => {
+        if (cutPos !== null && i > cutPos) return;
+        let e = monthEnd(m);
+        if (cutPos !== null && i === cutPos) { const d = Math.min(cutDay, daysInMonth(m + "-01")); e = m + "-" + String(d).padStart(2, "0"); }
+        p.segs.push([m + "-01", e]);
+      });
+      p.start = p.segs[0][0]; p.end = p.segs[p.segs.length - 1][1];
+      p.missing = p.months.filter((m, i) => (cutPos === null || i <= cutPos) && !monthTotals(m)).length;
+    });
+    return { periods: periods.filter(p => p.missing < p.segs.length && p.start <= ref), cut: cutPos !== null ? { pos: cutPos, day: cutDay } : null, ref };
+  }
+
+  function periodValues(p) {
+    const parts = []; p.segs.forEach(([s, e]) => parts.push(...partsIn(s, e, true)));
+    const r = sumParts(parts);
+    let gd = 0; for (const [s, e] of p.segs) { const g = gdIn(s, e); if (g === null) { gd = null; break; } gd += g; }
+    let hp = { wpIn: 0, wpUit: 0, ketelUit: 0 }, hpOk = true;
+    for (const [s, e] of p.segs) { const h = hpIn(s, e); if (!h) { hpOk = false; break; } hp.wpIn += h.wpIn; hp.wpUit += h.wpUit; hp.ketelUit += h.ketelUit; }
+    const heat = hp.wpUit + hp.ketelUit;
+    return {
+      afn: r.afn, ret: r.ret, net: r.afn - r.ret, gas: r.gasM3, cost: r.elec + r.gas + r.fixed, est: r.est,
+      temp: r.temp, gd, gasgd: gd ? r.gasM3 / gd * 1000 : null,
+      wpshare: hpOk && heat > 0 ? hp.wpUit / heat : null, cop: hpOk && hp.wpIn > 0 ? hp.wpUit / hp.wpIn : null
+    };
+  }
+
+  function renderCompare() {
+    clearCostCache();
+    const metric = document.getElementById("cmpMetric").value, M = METRICS[metric];
+    const { periods, cut, ref } = buildPeriods();
+    periods.forEach(p => { p.v = periodValues(p); p.val = p.v[metric]; p.wp = wpStart && p.start >= wpStart + "-01"; });
+    const shown = periods.filter(p => p.val !== null && p.val !== undefined && isFinite(p.val));
+    cmpPeriods = shown;
+    const full = shown.filter(p => !p.missing);
+    const avg = full.length ? full.reduce((a, p) => a + p.val, 0) / full.length : null;
+    const info = [];
+    if (cut) info.push("Lopende periode t/m " + fmtDate(ref) + "; de andere jaren zijn voor een eerlijke vergelijking afgekapt op dezelfde datum.");
+    if (wpStart) info.push("Donkere staven = met warmtepomp (sinds " + MONTHS_SHORT[+wpStart.slice(5) - 1] + " " + wpStart.slice(0, 4) + ").");
+    if (metric === "cost") info.push("≈ = geschat (maandtotalen of geen contract).");
+    if (metric === "gasgd") info.push("Gas gedeeld door graaddagen maakt koude en zachte periodes vergelijkbaar.");
+    if (!shown.length) info.push("Geen gegevens voor deze keuze" + ((metric === "wpshare" || metric === "cop") ? " (warmtepompgegevens zijn er vanaf maart 2024)." : "."));
+    info.push("Dubbeltik op een staaf om die periode te openen.");
+    document.getElementById("cmpInfo").textContent = info.join(" ");
+
+    // grafiek
+    if (cmpChart) cmpChart.destroy();
+    if (window.Chart) {
+      const text = cssVar("--muted"), grid = cssVar("--border"), col = cssVar(M.color), sc = M.scale || 1;
+      const ds = [{ type: "bar", label: M.lbl + (M.unit ? " (" + M.unit + ")" : ""), data: shown.map(p => +(p.val * sc).toFixed(2)),
+        backgroundColor: shown.map(p => p.wp || !wpStart ? col : col + "88"), borderRadius: 3, yAxisID: "y", order: 2 }];
+      if (avg !== null) ds.push({ type: "line", label: "Gemiddelde", data: shown.map(() => +(avg * sc).toFixed(2)), borderColor: text, borderDash: [3, 3], borderWidth: 1, pointRadius: 0, yAxisID: "y", order: 1 });
+      if (!M.noTempLine && shown.some(p => p.v.temp !== null)) ds.push({ type: "line", label: "Temperatuur (°C)", data: shown.map(p => p.v.temp === null ? null : +p.v.temp.toFixed(1)),
+        borderColor: cssVar("--temp"), backgroundColor: cssVar("--temp"), borderDash: [5, 4], borderWidth: 1.5, pointRadius: 2, spanGaps: true, yAxisID: "y1", order: 0 });
+      cmpChart = new Chart(document.getElementById("cmpChart"), {
+        data: { labels: shown.map(p => p.label + (p.ongoing ? "*" : "")), datasets: ds },
+        options: { responsive: true, maintainAspectRatio: false, animation: { duration: 200 }, interaction: { mode: "index", intersect: false },
+          plugins: { legend: { labels: { color: text, boxWidth: 12, font: { size: 11 } } },
+            tooltip: { callbacks: { label: ctx => ctx.dataset.yAxisID === "y1" ? " " + nf1.format(ctx.parsed.y) + " °C"
+              : " " + ctx.dataset.label.replace(/ \(.*\)/, "") + ": " + M.fmt(ctx.parsed.y / sc) + (M.unit && M.unit !== "€" && M.unit !== "%" ? " " + M.unit : "") } } },
+          scales: { x: { ticks: { color: text, maxRotation: 0, autoSkip: true }, grid: { display: false } },
+                    y: { beginAtZero: metric !== "temp", ticks: { color: text }, grid: { color: grid }, title: { display: !!M.unit, text: M.unit, color: text } },
+                    y1: { display: !M.noTempLine, position: "right", ticks: { color: cssVar("--temp"), callback: v => v + "°" }, grid: { drawOnChartArea: false } } } }
+      });
+    }
+    // tabel
+    const tb = document.querySelector("#cmpTable tbody"); tb.innerHTML = "";
+    const diff = (a, b) => {
+      if (b === null || b === undefined || a === null) return "–";
+      const d = a - b, pct = b !== 0 ? d / Math.abs(b) : null;
+      const sign = d > 0 ? "+" : d < 0 ? "−" : "";
+      const abs = metric === "wpshare" ? sign + nf0.format(Math.abs(d * 100)) + " %-punt" : sign + M.fmt(Math.abs(d));
+      return abs + (pct !== null && metric !== "wpshare" && metric !== "temp" ? " (" + (Math.round(pct * 100) === 0 ? "" : pct > 0 ? "+" : "−") + nf0.format(Math.abs(pct * 100)) + "%)" : "");
+    };
+    shown.slice().reverse().forEach((p, i, arr) => {
+      const prev = arr[i + 1];
+      const tr = document.createElement("tr"); if (p.missing) tr.className = "muted";
+      const cells = [p.label + (p.ongoing ? " (t/m " + fmtDate(p.end) + ")" : "") + (p.missing ? " (onvolledig)" : ""),
+        M.fmt(p.val) + (metric === "cost" && p.v.est ? " ≈" : ""), prev ? diff(p.val, prev.val) : "–", avg !== null ? diff(p.val, avg) : "–",
+        p.v.temp !== null ? nf1.format(p.v.temp) + " °C" : "–", ""];
+      cells.forEach((v, j) => { const td = document.createElement("td"); td.textContent = v; if (j > 0 && j < 5) td.className = "num"; tr.appendChild(td); });
+      if (p.wp) { const b = document.createElement("span"); b.className = "badge ok"; b.textContent = "warmtepomp"; tr.lastChild.appendChild(b); }
+      tb.appendChild(tr);
+    });
+  }
+
+  // bediening
+  (function () {
+    const ms = document.getElementById("cmpMonth");
+    MONTHS_LONG.forEach((n, i) => { const o = document.createElement("option"); o.value = i + 1; o.textContent = n; ms.appendChild(o); });
+    const refM = ALL_DATES.length ? +ALL_DATES[ALL_DATES.length - 1].slice(5, 7) : 1;
+    ms.value = refM;
+    document.querySelectorAll("#cmpKind .seg-btn").forEach(btn => btn.onclick = () => {
+      cmpKind = btn.dataset.k;
+      document.querySelectorAll("#cmpKind .seg-btn").forEach(b => b.classList.toggle("active", b === btn));
+      ms.style.display = cmpKind === "maand" ? "" : "none";
+      document.getElementById("cmpSeason").style.display = cmpKind === "seizoen" ? "" : "none";
+      renderCompare();
+    });
+    ["cmpMonth", "cmpSeason", "cmpMetric"].forEach(id => document.getElementById(id).onchange = renderCompare);
+    document.getElementById("cmpChart").addEventListener("click", ev => {
+      if (!cmpChart) return;
+      const hit = cmpChart.getElementsAtEventForMode(ev, "index", { intersect: false }, false);
+      if (!hit.length) return;
+      const idx = hit[0].index, now = Date.now();
+      if (cmpTap.idx === idx && now - cmpTap.t < 500) {
+        cmpTap = { idx: -1, t: 0 };
+        const p = cmpPeriods[idx]; if (!p) return;
+        if (cmpKind === "maand") { state.mode = "month"; state.cursorDate = p.start; }
+        else if (cmpKind === "jaar" && !p.ongoing) { state.mode = "year"; state.cursorDate = p.start; }
+        else { state.mode = "custom"; state.customStart = p.start; state.customEnd = p.end; syncRangeInputs(); }
+        compareModal.classList.remove("open"); renderAll();
+      } else cmpTap = { idx, t: now };
+    });
+    const close = () => compareModal.classList.remove("open");
+    document.getElementById("closeCompareBtn").onclick = close;
+    document.getElementById("closeCompareBtnBottom").onclick = close;
+    compareModal.addEventListener("click", ev => { if (ev.target === compareModal) close(); });
+    document.getElementById("openCompareBtn").onclick = () => { compareModal.classList.add("open"); renderCompare(); };
   })();
 
   /* ================= Start ================= */
