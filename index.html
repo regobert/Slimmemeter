@@ -471,6 +471,8 @@
     .unit-input { display: flex; gap: 6px; }
     .unit-input input { flex: 1; min-width: 0; }
     .unit-input select { width: auto; flex: none; }
+    .nav-last { width: auto; padding: 0 9px; font-size: 0.85rem; }
+    .nav-arrow:disabled { cursor: default; }
   </style>
 </head>
 <body>
@@ -501,6 +503,7 @@
       <button class="nav-arrow" id="prevPeriod">‹</button>
       <div class="period-label" id="periodLabel">-</div>
       <button class="nav-arrow" id="nextPeriod">›</button>
+      <button class="nav-arrow nav-last" id="lastPeriod" title="Ga naar de laatste gegevens">⏭</button>
     </div>
 
     <div class="custom-range" id="customRange">
@@ -1538,6 +1541,11 @@
     const navigable = state.mode !== "all" && state.mode !== "custom";
     document.getElementById("prevPeriod").style.visibility = navigable ? "visible" : "hidden";
     document.getElementById("nextPeriod").style.visibility = navigable ? "visible" : "hidden";
+    // 'laatste gegevens'-knop: uitgeschakeld als de laatste dag al in beeld is
+    const lastKey = ALL_DATES.length ? ALL_DATES[ALL_DATES.length - 1] : dataBounds()[1];
+    const lb = document.getElementById("lastPeriod");
+    lb.disabled = state.mode !== "custom" && state.mode !== "all" && lastKey >= s && lastKey <= e;
+    lb.style.opacity = lb.disabled ? "0.35" : "1";
     document.getElementById("customRange").classList.toggle("show", state.mode === "custom");
     document.querySelectorAll("#periodTabs .seg-btn").forEach(b => b.classList.toggle("active", b.dataset.mode === state.mode));
     const isElec = state.chartType === "elec";
@@ -1556,6 +1564,11 @@
   });
   document.getElementById("prevPeriod").onclick = () => shiftPeriod(-1);
   document.getElementById("nextPeriod").onclick = () => shiftPeriod(1);
+  document.getElementById("lastPeriod").onclick = () => {
+    state.cursorDate = ALL_DATES.length ? ALL_DATES[ALL_DATES.length - 1] : dataBounds()[1];
+    if (state.mode === "all" || state.mode === "custom") state.mode = "day";
+    renderAll();
+  };
 
   const sIn = document.getElementById("startDateInput"), eIn = document.getElementById("endDateInput");
   function syncRangeInputs() {
