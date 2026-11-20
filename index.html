@@ -1265,6 +1265,7 @@
     if (lastTap.idx === idx && now - lastTap.t < 500) { lastTap = { idx: -1, t: 0 }; drillDown(idx); }
     else lastTap = { idx, t: now };
   });
+  let gasLiter = false;
   function renderChart(s, e) {
     const b = buildBuckets(s, e);
     const isElec = state.chartType === "elec";
@@ -1274,7 +1275,9 @@
       datasets.push({ type: "bar", label: "Afname (kWh)", data: b.map(x => +x.afn.toFixed(3)), backgroundColor: cssVar("--elec"), borderRadius: 3, stack: "e", yAxisID: "y", order: 2 });
       datasets.push({ type: "bar", label: "Teruglevering (kWh)", data: b.map(x => -(+x.ret.toFixed(3))), backgroundColor: cssVar("--return"), borderRadius: 3, stack: "e", yAxisID: "y", order: 2 });
     } else {
-      datasets.push({ type: "bar", label: "Gas (m³)", data: b.map(x => +x.gas.toFixed(3)), backgroundColor: cssVar("--gas"), borderRadius: 3, yAxisID: "y", order: 2 });
+      // laag verbruik (alle staven < 1 m³): in liter tonen (1 m³ = 1.000 liter)
+      gasLiter = Math.max(0, ...b.map(x => x.gas)) < 1;
+      datasets.push({ type: "bar", label: gasLiter ? "Gas (liter)" : "Gas (m³)", data: b.map(x => gasLiter ? Math.round(x.gas * 1000) : +x.gas.toFixed(3)), backgroundColor: cssVar("--gas"), borderRadius: 3, yAxisID: "y", order: 2 });
     }
     const hasTemp = state.showTemp && b.some(x => x.temp !== null);
     if (hasTemp) {
@@ -1282,7 +1285,7 @@
         borderColor: tempColor, backgroundColor: tempColor, borderWidth: 1.5, borderDash: [5, 4],
         pointRadius: b.length > 40 ? 0 : 2, tension: 0.35, spanGaps: true, yAxisID: "y1", order: 1 });
     }
-    const unit = isElec ? "kWh" : "m³";
+    const unit = isElec ? "kWh" : (gasLiter ? "liter" : "m³");
     const hasData = b.some(x => x.afn || x.ret || x.gas);
     const note = document.getElementById("chartNote");
     const histOnly = !hasData && !withHist() && histMonths().some(m => m <= e.slice(0, 7) && m >= s.slice(0, 7));
@@ -1300,12 +1303,12 @@
           tooltip: { callbacks: { label: ctx => {
             const v = ctx.parsed.y; if (v === null) return null;
             if (ctx.dataset.yAxisID === "y1") return " " + nf1.format(v) + " °C";
-            return " " + ctx.dataset.label.replace(/ \(.*\)/, "") + ": " + nf2.format(Math.abs(v)) + " " + unit;
+            return " " + ctx.dataset.label.replace(/ \(.*\)/, "") + ": " + (unit === "liter" ? nf0 : nf2).format(Math.abs(v)) + " " + unit;
           } } }
         },
         scales: {
           x: { stacked: true, ticks: { color: text, maxRotation: 0, autoSkip: true, font: { size: 10 } }, grid: { display: false } },
-          y: { stacked: true, ticks: { color: text, callback: v => nf1.format(v) }, grid: { color: grid }, title: { display: true, text: unit, color: text } },
+          y: { stacked: true, ticks: { color: text, callback: (v, i, ticks) => (unit === "liter" ? nf0 : Math.max(...ticks.map(t => Math.abs(t.value))) < 1 ? nf2 : nf1).format(v) }, grid: { color: grid }, title: { display: true, text: unit, color: text } },
           y1: { display: hasTemp, position: "right", ticks: { color: tempColor, callback: v => v + "°" }, grid: { drawOnChartArea: false } }
         }
       }
