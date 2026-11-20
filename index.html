@@ -179,6 +179,8 @@
     @media (max-width: 860px) {
       .main-grid { grid-template-columns: 1fr; }
     }
+    .lbl-short, .mob-only { display: none; }
+    .fc-basis summary { cursor: pointer; color: var(--accent); font-size: 0.76rem; font-weight: 600; margin-top: 4px; }
 
     .left-col {
       display: flex;
@@ -474,6 +476,57 @@
     .nav-last { width: auto; padding: 0 9px; font-size: 0.85rem; }
     .nav-arrow:disabled { cursor: default; }
     .cmp-sel { padding: 7px 9px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.86rem; }
+    /* ---------- telefoon ---------- */
+    @media (max-width: 600px) {
+      .app { padding: 8px 8px 20px; }
+      .topbar { margin-bottom: 8px; gap: 6px; }
+      .brand h1 { font-size: 1.05rem; }
+      .app-version { display: none; }
+      .top-actions { width: 100%; display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 6px; }
+      .top-actions .icon-btn { justify-content: center; padding: 7px 6px; font-size: 0.8rem; white-space: nowrap; }
+      .lbl-long { display: none; }
+      .lbl-short, .mob-only { display: inline; }
+      small.mob-only { display: block; color: var(--muted); font-size: 0.7rem; }
+      .mob-hide { display: none; }
+      .controls { padding: 8px; gap: 8px; margin-bottom: 8px; }
+      .seg-group { width: 100%; justify-content: space-between; }
+      #periodTabs .seg-btn { padding: 6px 4px; font-size: 0.78rem; flex: 1; }
+      .nav-bar { width: 100%; justify-content: space-between; }
+      .period-label { min-width: 0; flex: 1; font-size: 0.88rem; }
+      /* volgorde: tegels, grafiek, kosten */
+      .main-grid { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+      .kpi-head span:last-child { display: none; }
+      .main-grid > .left-col { display: contents; }
+      .kpi-pair { order: 1; gap: 8px; }
+      .chart-card { order: 2; min-height: 0; padding: 10px; }
+      .left-col > .card { order: 3; }
+      .kpi-tile { padding: 10px; }
+      .kpi-euro { font-size: 1.4rem; }
+      .card { padding: 12px; }
+      .total-euro { font-size: 1.5rem; }
+      .canvas-wrap { height: 270px; }
+      .chart-header { gap: 6px; }
+      .tab-pill { padding: 5px 10px; font-size: 0.8rem; }
+      .temp-toggle { font-size: 0.76rem; }
+      .swipe-hint { font-size: 0.68rem; }
+      .forecast-box { gap: 10px; }
+      .ring-wrap { width: 80px; height: 80px; }
+      .ring-wrap svg { width: 80px; height: 80px; }
+      /* vensters schermvullend */
+      .modal-backdrop { padding: 0; align-items: stretch; }
+      .modal, .modal.wide { max-width: none; max-height: none; height: 100%; border-radius: 0; padding: 12px; }
+      .modal-head { flex-wrap: wrap; gap: 8px; }
+      .modal-head h2 { font-size: 1rem; }
+      .modal-head:has(.head-actions) h2 { width: 100%; }
+      .modal-head .head-actions { width: 100%; }
+      .modal-head .head-actions > * { flex: 1; }
+      .modal-tabs .seg-btn, #contractFilter .seg-btn, #cmpKind .seg-btn { padding: 6px 7px; font-size: 0.76rem; }
+      #contractFilter { flex-wrap: wrap; }
+      .row-actions select, .cmp-sel { min-width: 0; flex: 1 1 140px; }
+      .form-grid { grid-template-columns: 1fr; }
+      .mini-table { font-size: 0.74rem; }
+      .ins-chart { height: 220px !important; }
+    }
   </style>
 </head>
 <body>
@@ -484,9 +537,9 @@
       <span class="app-version" id="appVersion" title="Tijdstip waarop deze versie van het dashboard is gepubliceerd; ververs de pagina als dit niet de nieuwste is"></span>
     </div>
     <div class="top-actions">
-      <button class="icon-btn" id="openCompareBtn">📅 Vergelijken</button>
-      <button class="icon-btn" id="openInsightsBtn">📊 Inzichten</button>
-      <button class="icon-btn" id="openContractBtn">📄 Contracten & gegevens</button>
+      <button class="icon-btn" id="openCompareBtn">📅 <span class="lbl-long">Vergelijken</span><span class="lbl-short">Vergelijk</span></button>
+      <button class="icon-btn" id="openInsightsBtn">📊 <span class="lbl-long">Inzichten</span><span class="lbl-short">Inzicht</span></button>
+      <button class="icon-btn" id="openContractBtn">📄 <span class="lbl-long">Contracten & gegevens</span><span class="lbl-short">Gegevens</span></button>
       <button class="icon-btn" id="themeToggleBtn">🌙 Donker</button>
     </div>
   </div>
@@ -557,7 +610,7 @@
 
         <div class="forecast-box">
           <div class="ring-wrap">
-            <svg width="96" height="96">
+            <svg width="96" height="96" viewBox="0 0 96 96">
               <circle cx="48" cy="48" r="40" stroke="var(--border)" stroke-width="9" fill="none"/>
               <circle id="ringProgress" cx="48" cy="48" r="40" stroke="var(--accent)" stroke-width="9"
                       stroke-dasharray="251.3" stroke-dashoffset="251.3" stroke-linecap="round" fill="none"/>
@@ -572,7 +625,7 @@
             <div>Verwacht jaarbedrag: <strong id="yearForecastEuro">€ 0</strong></div>
             <div>Termijnbedrag: <strong id="termijnLbl">-</strong></div>
             <div style="margin-top:6px;"><span class="badge ok" id="forecastBadge">Op schema</span></div>
-            <div class="hint" id="forecastBasis" style="margin:4px 0 0;"></div>
+            <details class="fc-basis"><summary>Toelichting</summary><div class="hint" id="forecastBasis" style="margin:4px 0 0;"></div></details>
           </div>
         </div>
       </div>
@@ -637,7 +690,7 @@
       </div>
       <div class="table-scroll" style="margin-bottom:8px;">
         <table class="mini-table" id="contractListTable">
-          <thead><tr><th><input type="checkbox" id="contractSelAll" title="Alle zichtbare selecteren" /></th><th>Contract</th><th>Periode</th><th>Soort</th><th>Controle</th><th></th><th></th></tr></thead>
+          <thead><tr><th><input type="checkbox" id="contractSelAll" title="Alle zichtbare selecteren" /></th><th>Contract</th><th class="mob-hide">Periode</th><th class="mob-hide">Soort</th><th>Controle</th><th></th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -984,7 +1037,7 @@
   const themeBtn = document.getElementById("themeToggleBtn");
   function applyTheme(t) {
     document.documentElement.setAttribute("data-theme", t);
-    themeBtn.textContent = t === "dark" ? "☀️ Licht" : "🌙 Donker";
+    themeBtn.innerHTML = t === "dark" ? '☀️<span class="lbl-long"> Licht</span>' : '🌙<span class="lbl-long"> Donker</span>';
   }
   applyTheme(LS.get("energie_theme_v2", null) || (localStorage.getItem("energie_theme") === "dark" ? "dark" : "light"));
   themeBtn.onclick = () => {
@@ -1855,8 +1908,12 @@
       const td0 = document.createElement("td"), cb = document.createElement("input");
       cb.type = "checkbox"; cb.dataset.id = c.id; cb.dataset.rm = removable ? "1" : ""; cb.onclick = ev => ev.stopPropagation();
       td0.appendChild(cb); tr.appendChild(td0);
-      [c.naam, fmtDate(c.start) + " – " + (c.end ? fmtDate(c.end) : "heden"), (c.soort || "vast") + " · saldering " + (SALDERING_LBL[c.saldering || "auto"] || c.saldering)].forEach(v => {
-        const td = document.createElement("td"); td.textContent = v; tr.appendChild(td);
+      const periode = fmtDate(c.start) + " – " + (c.end ? fmtDate(c.end) : "heden");
+      [c.naam, periode, (c.soort || "vast") + " · saldering " + (SALDERING_LBL[c.saldering || "auto"] || c.saldering)].forEach((v, i) => {
+        const td = document.createElement("td"); td.textContent = v;
+        if (i === 0) { const sm = document.createElement("small"); sm.className = "mob-only"; sm.textContent = periode + " · " + (c.soort || "vast"); td.appendChild(sm); }
+        if (i > 0) td.className = "mob-hide";
+        tr.appendChild(td);
       });
       const tdc = document.createElement("td");
       if (!issues.length) { tdc.className = "chk-ok"; tdc.textContent = "✓ energiecontract"; }
