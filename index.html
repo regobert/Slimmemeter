@@ -588,6 +588,10 @@
           <input type="checkbox" id="toggleTemp" checked />
           🌡️ Temperatuur (°C)
         </label>
+        <label class="temp-toggle" title="Sluimerverbruik: gemiddelde van de 4 laagste kwartierwaarden tussen 01:00 en 05:00">
+          <input type="checkbox" id="toggleSluimer" />
+          💤 Sluimer
+        </label>
       </div>
 
       <div class="canvas-wrap">
@@ -911,16 +915,20 @@
         <option value="gd">Graaddagen</option>
         <option value="wpshare">Aandeel warmtepomp in warmte (%)</option>
         <option value="cop">Rendement warmtepomp (COP)</option>
+        <option value="sluim">Sluimerverbruik (W, vanaf okt 2026)</option>
       </select>
     </div>
     <div class="hint" id="cmpInfo"></div>
     <div class="ins-chart" style="height:280px;"><canvas id="cmpChart"></canvas></div>
+    <details class="cost-details" id="cmpTableWrap">
+      <summary>Tabel met cijfers</summary>
     <div class="table-scroll">
       <table class="mini-table" id="cmpTable">
         <thead><tr><th>Periode</th><th class="num">Waarde</th><th class="num">t.o.v. vorige</th><th class="num">t.o.v. gemiddelde</th><th class="num">Temp.</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
+    </details>
     <div class="modal-actions">
       <button class="icon-btn" id="closeCompareBtnBottom">✕ Sluiten</button>
     </div>
@@ -1037,10 +1045,12 @@
       hAfn: new Array(24).fill(0), hRet: new Array(24).fill(0), hGas: new Array(24).fill(0),
       hTemp: new Array(24).fill(null), temp: null
     };
-    const meterTemps = new Array(24).fill(null);
+    const meterTemps = new Array(24).fill(null), nacht = [];
     (raw.elektriciteit || []).forEach(r => {
       const h = hourOfEnd(r.time);
       const ah = z(r.delivery_high), al = z(r.delivery_low);
+      const tm = /(\d{2}):(\d{2})/.exec(String(r.time || "").split(" ")[1] || "");
+      if (tm) { const min = (+tm[1]) * 60 + (+tm[2]); if (min > 60 && min <= 300) nacht.push(ah + al); }
       const rh = z(r.returned_delivery_high), rl = z(r.returned_delivery_low);
       d.afnHigh += ah; d.afnLow += al; d.retHigh += rh; d.retLow += rl;
       d.hAfn[h] += ah + al; d.hRet[h] += rh + rl;
@@ -1058,6 +1068,9 @@
       const t = num(uren[h] !== undefined ? uren[h] : uren[String(h)]);
       d.hTemp[h] = t !== null ? t : meterTemps[h];
     }
+    // sluimerverbruik: gemiddelde van de 4 laagste kwartierwaarden tussen 01:00 en 05:00, in watt
+    if (nacht.length >= 8) { const low = nacht.sort((a, b) => a - b).slice(0, 4); d.sluimerW = low.reduce((a, b) => a + b, 0) / 4 * 4 * 1000; }
+    else d.sluimerW = null;
     const g = raw.temp ? num(raw.temp.gemiddeld) : null;
     const valid = d.hTemp.filter(t => t !== null);
     d.temp = g !== null ? g : (valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : null);
@@ -1228,7 +1241,7 @@
 
   /* ================= Periodes ================= */
   let state = {
-    mode: "day", chartType: "elec", showTemp: true,
+    mode: "day", chartType: "elec", showTemp: true, showSluimer: !!LS.get("energie_sluimer_v1", false),
     cursorDate: ALL_DATES.length ? ALL_DATES[ALL_DATES.length - 1] : todayKey(),
     customStart: dataBounds()[0], customEnd: dataBounds()[1]
   };
@@ -1273,7 +1286,8 @@
     const out = [];
     if (state.mode === "day") {
       const d = DAY[s];
-      for (let h = 0; h < 24; h++) out.push({ label: String(h).padStart(2, "0") + ":00", afn: d ? d.hAfn[h] : 0, ret: d ? d.hRet[h] : 0, gas: d ? d.hGas[h] : 0, temp: d ? d.hTemp[h] : null });
+      for (let h = 0; h < 24; h++) out.push({ label: String(h).padStart(2, "0") + ":00", afn: d ? d.hAfn[h] : 0, ret: d ? d.hRet[h] : 0, gas: d ? d.hGas[h] : 0, temp: d ? d.hTemp[h] : null,
+        sluim: d && d.sluimerW !== null ? d.sluimerW / 1000 : null });
       return out;
     }
     const span = daysBetween(s, e) + 1;
@@ -1283,7 +1297,8 @@
       for (let k = s; k <= e; k = addDays(k, 1)) {
         const d = DAY[k], dt = toDate(k);
         const lbl = state.mode === "week" ? DAYS_SHORT[dt.getUTCDay()] + " " + dt.getUTCDate() : dt.getUTCDate() + " " + MONTHS_SHORT[dt.getUTCMonth()];
-        out.push({ label: lbl, key: k, afn: d ? d.afnHigh + d.afnLow : 0, ret: d ? d.retHigh + d.retLow : 0, gas: d ? d.gas : 0, temp: d ? d.temp : null });
+        out.push({ label: lbl, key: k, afn: d ? d.afnHigh + d.afnLow : 0, ret: d ? d.retHigh + d.retLow : 0, gas: d ? d.gas : 0, temp: d ? d.temp : null,
+          sluim: d && d.sluimerW !== null ? d.sluimerW * 24 / 1000 : null });
       }
       return out;
     }
@@ -1291,7 +1306,9 @@
       const me = monthEnd(m.slice(0, 7));
       const r = sumParts(partsIn(m < s ? s : m, me > e ? e : me, true));
       const dt = toDate(m);
-      out.push({ label: MONTHS_SHORT[dt.getUTCMonth()] + " '" + String(dt.getUTCFullYear()).slice(2), key: m, month: true, afn: r.afn, ret: r.ret, gas: r.gasM3, temp: r.temp });
+      const sl = sluimerIn(m < s ? s : m, me > e ? e : me);
+      out.push({ label: MONTHS_SHORT[dt.getUTCMonth()] + " '" + String(dt.getUTCFullYear()).slice(2), key: m, month: true, afn: r.afn, ret: r.ret, gas: r.gasM3, temp: r.temp,
+        sluim: sl ? sl.kwh : null });
     }
     return out;
   }
@@ -1300,6 +1317,12 @@
   let chart = null;
   const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
+  // sluimerverbruik tussen s en e: gemiddeld vermogen (W) en totaal (kWh) over dagen met kwartierdata
+  function sluimerIn(s, e) {
+    let w = 0, n = 0;
+    ALL_DATES.forEach(k => { if (k >= s && k <= e && DAY[k].sluimerW !== null && DAY[k].sluimerW !== undefined) { w += DAY[k].sluimerW; n++; } });
+    return n ? { w: w / n, kwh: w * 24 / 1000, days: n } : null;
+  }
   let lastBuckets = [], lastTap = { idx: -1, t: 0 };
   // Dubbelklik/-tik op een staaf: maand -> maandoverzicht, dag -> dagoverzicht
   function drillDown(idx) {
@@ -1331,6 +1354,11 @@
       // laag verbruik (alle staven < 1 m³): in liter tonen (1 m³ = 1.000 liter)
       gasLiter = Math.max(0, ...b.map(x => x.gas)) < 1;
       datasets.push({ type: "bar", label: gasLiter ? "Gas (liter)" : "Gas (m³)", data: b.map(x => gasLiter ? Math.round(x.gas * 1000) : +x.gas.toFixed(3)), backgroundColor: cssVar("--gas"), borderRadius: 3, yAxisID: "y", order: 2 });
+    }
+    if (isElec && state.showSluimer && b.some(x => x.sluim !== null)) {
+      const sl = sluimerIn(s, e);
+      datasets.push({ type: "line", label: "Sluimerverbruik" + (sl ? " (" + nf0.format(sl.w) + " W)" : ""), data: b.map(x => x.sluim === null ? null : +x.sluim.toFixed(3)),
+        borderColor: "#7c3aed", backgroundColor: "#7c3aed", borderWidth: 2, borderDash: [2, 3], pointRadius: 0, stepped: state.mode === "day", spanGaps: false, yAxisID: "y", order: 0 });
     }
     const hasTemp = state.showTemp && b.some(x => x.temp !== null);
     if (hasTemp) {
@@ -1376,7 +1404,9 @@
     const r = sumParts(partsIn(s, e, withHist()));
     const est = r.est ? ' <span class="est-flag">≈</span>' : "";
     document.getElementById("elecEuro").innerHTML = euro(r.elec) + est;
-    document.getElementById("elecSub").innerHTML = "Afname: " + nf1.format(r.afn) + " kWh<br>Terug: " + nf1.format(r.ret) + " kWh";
+    const slT = state.showSluimer ? sluimerIn(s, e) : null;
+    document.getElementById("elecSub").innerHTML = "Afname: " + nf1.format(r.afn) + " kWh<br>Terug: " + nf1.format(r.ret) + " kWh" +
+      (slT ? "<br>💤 Sluimer: " + nf0.format(slT.w) + " W (" + nf1.format(slT.w * 24 / 1000) + " kWh/dag)" : "");
     document.getElementById("gasEuro").innerHTML = euro(r.gas) + est;
     document.getElementById("gasSub").innerHTML = "Verbruik: " + nf1.format(r.gasM3) + " m³<br>Gem. temp: " + (r.temp !== null ? nf1.format(r.temp) : "-") + " °C";
     document.getElementById("totalEuro").innerHTML = euro(r.elec + r.gas + r.fixed) + est;
@@ -1636,6 +1666,8 @@
   document.getElementById("btnShowElec").onclick = () => setType("elec");
   document.getElementById("btnShowGas").onclick = () => setType("gas");
   document.getElementById("toggleTemp").onchange = ev => { state.showTemp = ev.target.checked; renderAll(); };
+  document.getElementById("toggleSluimer").checked = state.showSluimer;
+  document.getElementById("toggleSluimer").onchange = ev => { state.showSluimer = ev.target.checked; LS.set("energie_sluimer_v1", state.showSluimer); renderAll(); };
 
   (function () { // vegen op de grafiek
     const area = document.getElementById("swipeArea");
@@ -2686,6 +2718,7 @@
     temp: { lbl: "Gemiddelde temperatuur", unit: "°C", fmt: v => nf1.format(v), color: "--temp", noTempLine: true },
     gd: { lbl: "Graaddagen", unit: "", fmt: v => nf0.format(v), color: "--temp", noTempLine: true },
     wpshare: { lbl: "Aandeel warmtepomp", unit: "%", fmt: v => nf0.format(v * 100) + "%", scale: 100, color: "--elec" },
+    sluim: { lbl: "Sluimerverbruik", unit: "W", fmt: v => nf0.format(v), color: "--return" },
     cop: { lbl: "Rendement warmtepomp (COP)", unit: "", fmt: v => nf2.format(v), color: "--elec" }
   };
   let cmpKind = "maand", cmpChart = null, cmpPeriods = [], cmpTap = { idx: -1, t: 0 };
@@ -2758,7 +2791,8 @@
     return {
       afn: r.afn, ret: r.ret, net: r.afn - r.ret, gas: r.gasM3, cost: r.elec + r.gas + r.fixed, est: r.est,
       temp: r.temp, gd, gasgd: gd ? r.gasM3 / gd * 1000 : null,
-      wpshare: hpOk && heat > 0 ? hp.wpUit / heat : null, cop: hpOk && hp.wpIn > 0 ? hp.wpUit / hp.wpIn : null
+      wpshare: hpOk && heat > 0 ? hp.wpUit / heat : null, cop: hpOk && hp.wpIn > 0 ? hp.wpUit / hp.wpIn : null,
+      sluim: (() => { let w = 0, n = 0; p.segs.forEach(([a, b]) => { const x = sluimerIn(a, b); if (x) { w += x.w * x.days; n += x.days; } }); return n ? w / n : null; })()
     };
   }
 
