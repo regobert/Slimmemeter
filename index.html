@@ -2590,7 +2590,7 @@
           { type: "bar", label: "Warmte warmtepomp (kWh)", data: last.map(m => +M[m].wpUit.toFixed(1)), backgroundColor: cssVar("--elec"), stack: "w", yAxisID: "y", order: 2 },
           { type: "bar", label: "Warmte cv-ketel (kWh)", data: last.map(m => +M[m].ketelUit.toFixed(1)), backgroundColor: cssVar("--gas"), stack: "w", yAxisID: "y", order: 2 },
           ...(last.some(m => M[m].ongesplitst > 0) ? [{ type: "bar", label: "Warmte, niet gesplitst (kWh)", data: last.map(m => +M[m].ongesplitst.toFixed(1)), backgroundColor: cssVar("--muted"), stack: "w", yAxisID: "y", order: 2 }] : []),
-          { type: "line", label: "COP warmtepomp", data: last.map(m => M[m].wpIn > 0 ? +(M[m].wpUit / M[m].wpIn).toFixed(2) : null), borderColor: cssVar("--temp"), backgroundColor: cssVar("--temp"), borderDash: [5, 4], borderWidth: 1.5, pointRadius: 2, spanGaps: true, yAxisID: "y1", order: 1 }
+          { type: "line", label: "COP warmtepomp", data: last.map(m => M[m].wpIn > 0 ? +(M[m].wpUit / M[m].wpIn).toFixed(2) : null), borderColor: cssVar("--temp"), backgroundColor: cssVar("--temp"), borderDash: [5, 4], borderWidth: 1.5, pointRadius: 2, tension: 0.35, cubicInterpolationMode: "monotone", spanGaps: true, yAxisID: "y1", order: 1 }
         ] },
         options: { responsive: true, maintainAspectRatio: false, animation: { duration: 200 }, interaction: { mode: "index", intersect: false },
           plugins: { legend: { labels: { color: text, boxWidth: 12, font: { size: 11 } } } },
@@ -2822,7 +2822,7 @@
         backgroundColor: shown.map(p => p.wp || !wpStart ? col : col + "88"), borderRadius: 3, yAxisID: "y", order: 2 }];
       if (avg !== null) ds.push({ type: "line", label: "Gemiddelde", data: shown.map(() => +(avg * sc).toFixed(2)), borderColor: text, borderDash: [3, 3], borderWidth: 1, pointRadius: 0, yAxisID: "y", order: 1 });
       if (!M.noTempLine && shown.some(p => p.v.temp !== null)) ds.push({ type: "line", label: "Temperatuur (°C)", data: shown.map(p => p.v.temp === null ? null : +p.v.temp.toFixed(1)),
-        borderColor: cssVar("--temp"), backgroundColor: cssVar("--temp"), borderDash: [5, 4], borderWidth: 1.5, pointRadius: 2, spanGaps: true, yAxisID: "y1", order: 0 });
+        borderColor: cssVar("--temp"), backgroundColor: cssVar("--temp"), borderDash: [5, 4], borderWidth: 1.5, pointRadius: 2, tension: 0.35, cubicInterpolationMode: "monotone", spanGaps: true, yAxisID: "y1", order: 0 });
       cmpChart = new Chart(document.getElementById("cmpChart"), {
         data: { labels: shown.map(p => p.label + (p.ongoing ? "*" : "")), datasets: ds },
         options: { responsive: true, maintainAspectRatio: false, animation: { duration: 200 }, interaction: { mode: "index", intersect: false },
