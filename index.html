@@ -571,6 +571,7 @@
     .wiz-found td:first-child { color: var(--muted); }
     .wiz-input { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 1.3rem; font-weight: 700; }
     .wiz-input input { width: 140px; font-size: 1.3rem; padding: 10px 12px; border-radius: 12px; border: 2px solid var(--accent); background: var(--bg); color: var(--text); }
+    .wiz-list { margin: 8px 0 0; padding-left: 22px; line-height: 1.6; font-size: 0.95rem; max-width: 640px; }
     .wiz-more { margin-top: 16px; font-size: 0.85rem; }
     .wiz-more summary { cursor: pointer; color: var(--accent); font-weight: 600; }
     .wiz-more ul { margin: 8px 0 0; padding-left: 18px; line-height: 2; }
@@ -912,6 +913,13 @@
 
     <!-- ===== Historie ===== -->
     <div class="tab-pane" id="tabHist" style="display:none;">
+      <div class="row-actions" style="margin-bottom:10px; align-items:center;">
+        <label for="bronSelect" style="font-weight:600;">Welk verbruik?</label>
+        <select id="bronSelect">
+          <option value="site">Automatisch: de slimme meter van deze site</option>
+          <option value="eigen">Alleen mijn eigen bestanden</option>
+        </select>
+      </div>
       <div class="upload-box" id="xlsxDropZone">
         <strong>Excelbestanden met verbruik uploaden</strong><br/>
         <span style="font-size:0.8rem; color:var(--muted);">Meerdere bestanden tegelijk (elektriciteit én gas, per jaar). Wordt lokaal verwerkt; bestaande maanden worden overschreven.</span>
@@ -1079,6 +1087,11 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
   };
 
+  // Bron van het verbruik: "site" = de slimme meter waarvan deze site elke nacht de gegevens ophaalt (standaard),
+  // "eigen" = alleen de eigen geüploade bestanden van deze gebruiker (meter- en warmtepompdata van de site worden genegeerd)
+  const BRON_KEY = "energie_bron_v1";
+  const BRON_EIGEN = LS.get(BRON_KEY, "") === "eigen";
+  if (BRON_EIGEN) { window.ENERGIE_DATA = {}; window.REMEHA_DATA = {}; }
   const RAW_DATA = window.ENERGIE_DATA || {};
   const ALL_DATES = Object.keys(RAW_DATA).sort();
   const DAILY_MONTHS = new Set(ALL_DATES.map(k => k.slice(0, 7)));
@@ -1844,7 +1857,7 @@
   document.getElementById("nextPeriod").onclick = () => shiftPeriod(1);
   document.getElementById("lastPeriod").onclick = () => {
     state.cursorDate = ALL_DATES.length ? ALL_DATES[ALL_DATES.length - 1] : dataBounds()[1];
-    if (state.mode === "all" || state.mode === "custom") state.mode = "day";
+    if (state.mode === "all" || state.mode === "custom") state.mode = ALL_DATES.length ? "day" : "year";
     renderAll();
   };
 
@@ -2478,7 +2491,7 @@
     const files = [...xlsxInput.files];
     if (!files.length) return;
     status.style.color = ""; status.textContent = "Bezig met inlezen…";
-    const msgs = [];
+    const msgs = [], gotMonths = [];
     try {
       const X = await ensureXLSX();
       for (const f of files) {
@@ -2489,7 +2502,7 @@
           if (!months) return;
           Object.entries(months).forEach(([m, v]) => {
             if (((v.afn || 0) + (v.ret || 0) + (v.gas || 0)) === 0) return; // lege (toekomstige) maanden overslaan
-            hist[m] = Object.assign({}, hist[m] || {}, v); got++;
+            hist[m] = Object.assign({}, hist[m] || {}, v); got++; gotMonths.push(m);
           });
         });
         msgs.push(f.name + ": " + (got ? got + " maand(en)" : "niet herkend"));
@@ -2497,8 +2510,10 @@
       LS.set("energie_hist_v1", hist);
       status.textContent = "✓ " + msgs.join(" · ");
       afterHistChange();
+      if (wizXlsx) wizXlsxDone(gotMonths);
     } catch (err) {
       status.style.color = "var(--gas)"; status.textContent = "Fout: " + err.message;
+      if (wizXlsx) wizXlsxDone([], err.message);
     } finally { xlsxInput.value = ""; }
   };
 
@@ -2555,10 +2570,18 @@
     } catch (e) { console.warn("Temperatuurhistorie niet beschikbaar", e); }
   }
 
+  const bronSelect = document.getElementById("bronSelect");
+  bronSelect.value = BRON_EIGEN ? "eigen" : "site";
+  bronSelect.onchange = () => {
+    const v = bronSelect.value;
+    if (!confirm(v === "eigen" ? "Alleen je eigen geüploade verbruik gebruiken? De gegevens van de slimme meter van deze site worden dan niet meer getoond." : "Weer het verbruik van de slimme meter van deze site gebruiken?")) { bronSelect.value = BRON_EIGEN ? "eigen" : "site"; return; }
+    LS.set(BRON_KEY, v); location.href = location.pathname;
+  };
+
   /* ================= Back-up ================= */
   document.getElementById("exportBtn").onclick = () => {
     commit();
-    const blob = new Blob([JSON.stringify({ app: "mijn-energie", versie: 2, contracts, termijnen, hist, histTemp, degreeDays, wpStart }, null, 1)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify({ app: "mijn-energie", versie: 2, contracts, termijnen, hist, histTemp, degreeDays, wpStart, bron: BRON_EIGEN ? "eigen" : "site" }, null, 1)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob); a.download = "energie-backup-" + todayKey() + ".json";
     document.body.appendChild(a); a.click(); a.remove();
@@ -2582,6 +2605,7 @@
       if (js.degreeDays !== undefined) { degreeDays = js.degreeDays; LS.set("energie_gd_v1", degreeDays); }
       if (js.wpStart !== undefined) { wpStart = js.wpStart; LS.set("energie_wp_v1", wpStart); wpInput.value = wpStart; }
       saveAll(); LS.set("energie_histtemp_v1", histTemp);
+      if (js.bron && (js.bron === "eigen") !== BRON_EIGEN) { LS.set(BRON_KEY, js.bron); location.href = location.pathname; return; }
       openModal(); afterHistChange();
       st.textContent = "✓ Back-up ingelezen.";
     } catch (e) { st.textContent = "Fout: " + e.message; }
@@ -3223,9 +3247,27 @@
   }
   // Stap-voor-stap hulp: één vraag tegelijk, alles over te slaan
   const WIZ_KEY = "energie_wizard_v1";
-  let wizPdf = false, wizFound = null, wizMsg = "";
-  const wizStep = () => +(LS.get(WIZ_KEY, 0) || 0);
-  const setWizStep = n => { LS.set(WIZ_KEY, n); wizMsg = ""; renderWelcome(); };
+  let wizPdf = false, wizXlsx = false, wizFound = null, wizHist = null, wizMsg = "";
+  const wizSteps = () => BRON_EIGEN ? ["welkom", "verbruik", "contract", "termijn", "klaar"] : ["welkom", "contract", "termijn", "klaar"];
+  function wizStep() {
+    let v = LS.get(WIZ_KEY, "welkom");
+    if (typeof v === "number") v = ["welkom", "contract", "termijn", "klaar"][v] || "welkom";
+    return wizSteps().includes(v) ? v : "welkom";
+  }
+  const setWizStep = id => { LS.set(WIZ_KEY, id); wizMsg = ""; renderWelcome(); };
+  // wisselen tussen het verbruik van deze site en het eigen verbruik (pagina wordt opnieuw geladen)
+  function setBron(v) {
+    const d = LS.get(DEMO_KEY, null);
+    if (d) {
+      contracts = contracts.filter(c => !c.demo); (d.months || []).forEach(m => delete hist[m]);
+      if (d.wp) LS.set("energie_wp_v1", "");
+      saveAll(); try { localStorage.removeItem(DEMO_KEY); } catch (e) {}
+    }
+    LS.set(BRON_KEY, v);
+    LS.set(WIZ_KEY, v === "eigen" ? "verbruik" : "contract");
+    try { localStorage.removeItem("energie_welkom_v1"); } catch (e) {}
+    location.href = location.pathname;
+  }
   function renderWelcome() {
     const own = hasOwnContract();
     const ownReal = contracts.some(c => !c.placeholder && !c.demo), demoOn = !!LS.get(DEMO_KEY, null);
@@ -3238,28 +3280,60 @@
     document.getElementById("exampleNote").style.display = own ? "none" : "";
     const card = document.getElementById("welcomeCard");
     const hidden = LS.get("energie_welkom_v1", "") === "verborgen";
-    const step = wizStep();
-    const show = welcomeForced || (!hidden && (!own || step > 0 || wizFound));
+    const step = wizStep(), steps = wizSteps();
+    const show = welcomeForced || (!hidden && (!own || step !== "welkom" || wizFound || wizHist));
     card.style.display = show ? "" : "none";
     if (!show) return;
 
-    const N = 4;
-    document.getElementById("wizStepLbl").textContent = "Stap " + (step + 1) + " van " + N;
-    document.getElementById("wizDots").innerHTML = [...Array(N)].map((_, i) => '<i class="' + (i < step ? "done" : i === step ? "on" : "") + '"></i>').join("");
+    const N = steps.length, idx = steps.indexOf(step), next = () => setWizStep(steps[idx + 1] || "klaar");
+    document.getElementById("wizStepLbl").textContent = "Stap " + (idx + 1) + " van " + N;
+    document.getElementById("wizDots").innerHTML = steps.map((_, i) => '<i class="' + (i < idx ? "done" : i === idx ? "on" : "") + '"></i>').join("");
     const body = document.getElementById("wizBody"); body.innerHTML = "";
     const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt !== undefined) e.textContent = txt; body.appendChild(e); return e; };
     const btns = () => el("div", "wiz-btns");
     const btn = (box, txt, primary, fn) => { const b = document.createElement("button"); b.type = "button"; b.className = primary ? "btn-primary" : "icon-btn"; b.textContent = txt; b.onclick = fn; box.appendChild(b); return b; };
     const link = (box, txt, fn) => { const b = document.createElement("button"); b.type = "button"; b.className = "link-btn2"; b.textContent = txt; b.onclick = fn; box.appendChild(b); return b; };
+    const err = () => { if (wizMsg) el("div", "wiz-small", wizMsg).style.color = "var(--gas)"; };
 
-    if (step === 0) {
+    if (step === "welkom") {
       el("div", "wiz-title", "👋 Welkom bij Mijn Energie");
-      el("div", "wiz-text", "Hier zie je wat je energie kost en wat je zonnepanelen en warmtepomp opleveren. Je verbruik wordt al vanzelf bijgehouden — daar hoef je niets voor te doen.");
-      if (ALL_DATES.length) el("div", "wiz-ok", "✓ Verbruik bijgehouden tot en met " + fmtDate(ALL_DATES[ALL_DATES.length - 1]));
-      el("div", "wiz-text", "We stellen je nog twee korte vragen. Elke vraag mag je overslaan.").style.marginTop = "10px";
-      const b = btns(); btn(b, "Beginnen ›", true, () => setWizStep(1));
-      if (!hasUserData() && !demoOn) { const sm = el("div", "wiz-small"); sm.append("Liever eerst rondkijken? "); link(sm, "Bekijk het met voorbeeldgegevens", () => { if (loadDemo()) location.reload(); }); }
-    } else if (step === 1) {
+      el("div", "wiz-text", "Hier zie je wat je energie kost en wat je zonnepanelen en warmtepomp opleveren.");
+      if (!BRON_EIGEN) {
+        el("div", "wiz-text", "Het verbruik dat je nu op deze pagina ziet, komt van de slimme meter van één huis: het huis van de maker van deze app.").style.marginTop = "10px";
+        el("div", "wiz-text", "Wil je je eigen verbruik zien?").style.cssText = "margin-top:10px;font-weight:700;";
+        const b = btns();
+        btn(b, "Ja, mijn eigen verbruik ›", true, () => setBron("eigen"));
+        btn(b, "Nee, dit is mijn huis", false, () => setWizStep("contract"));
+        if (!hasUserData() && !demoOn) { const sm = el("div", "wiz-small"); sm.append("Eerst alleen rondkijken? "); link(sm, "Bekijk het met voorbeeldgegevens", () => { if (loadDemo()) location.reload(); }); }
+      } else {
+        el("div", "wiz-text", "We stellen je drie korte vragen. Elke vraag mag je overslaan.").style.marginTop = "10px";
+        const b = btns(); btn(b, "Beginnen ›", true, next);
+      }
+    } else if (step === "verbruik") {
+      el("div", "wiz-title", "📈 Je verbruik");
+      const hm = histMonths();
+      if (wizHist || hm.length) {
+        const f = wizHist ? wizHist.from : hm[0], t = wizHist ? wizHist.to : hm[hm.length - 1];
+        el("div", "wiz-ok", "✓ Verbruik gevonden van " + fmtMonth(f) + " tot en met " + fmtMonth(t));
+        el("div", "wiz-text", "Stroom en gas in aparte bestanden? Voeg dan ook het andere bestand toe.").style.marginTop = "8px";
+        err();
+        const b = btns();
+        btn(b, "✓ Klopt, verder ›", true, () => { wizHist = null; next(); });
+        btn(b, "Nog een bestand toevoegen", false, () => startXlsx());
+      } else {
+        el("div", "wiz-text", "Je verbruik kun je downloaden bij je energieleverancier. Zo doe je dat:");
+        const ol = el("ol", "wiz-list");
+        ["Log in op de website van je energieleverancier.",
+         "Zoek naar 'Verbruik' en dan naar 'Downloaden' of 'Exporteren'. Kies Excel als je mag kiezen.",
+         "Kies hieronder het bestand dat je hebt gedownload."].forEach(t => { const li = document.createElement("li"); li.textContent = t; ol.appendChild(li); });
+        err();
+        const b = btns();
+        btn(b, "📂 Bestand kiezen", true, () => startXlsx());
+        btn(b, "Nu niet, later doen", false, next);
+        el("div", "wiz-small", "Het bestand blijft op dit apparaat; er wordt niets verstuurd.");
+      }
+      const sm = el("div", "wiz-small"); link(sm, "Toch het verbruik van het huis van de maker bekijken", () => setBron("site"));
+    } else if (step === "contract") {
       el("div", "wiz-title", "📄 Je energiecontract");
       if (wizFound) {
         el("div", "wiz-text", "Dit hebben we in de PDF gevonden:");
@@ -3270,29 +3344,29 @@
         row("Stroom", f.tariffType === "single" ? "€ " + nf2.format(f.elecPeak) + " per kWh" : "€ " + nf2.format(f.elecPeak) + " / € " + nf2.format(f.elecOffPeak) + " per kWh");
         row("Gas", "€ " + nf2.format(f.gasRate) + " per m³");
         const b = btns();
-        btn(b, "✓ Klopt, verder ›", true, () => { wizFound = null; setWizStep(2); });
+        btn(b, "✓ Klopt, verder ›", true, () => { wizFound = null; next(); });
         btn(b, "Iets aanpassen", false, () => { wizFound = null; openModalTab("tabContract"); });
       } else if (ownReal) {
         const c = contractFor(todayKey());
         el("div", "wiz-ok", "✓ Je contract staat erin: " + c.naam);
-        const b = btns(); btn(b, "Verder ›", true, () => setWizStep(2));
+        const b = btns(); btn(b, "Verder ›", true, next);
         const sm = el("div", "wiz-small"); link(sm, "Nog een contract toevoegen", () => startPdf());
       } else {
         el("div", "wiz-text", "Heb je de PDF van je energiecontract? Die zit meestal als bijlage bij de bevestigingsmail van je energieleverancier.");
-        if (wizMsg) el("div", "wiz-small", wizMsg).style.color = "var(--gas)";
+        err();
         const b = btns();
         btn(b, "📄 Ja, PDF kiezen", true, () => startPdf());
-        btn(b, "Nu niet, later doen", false, () => setWizStep(2));
+        btn(b, "Nu niet, later doen", false, next);
         const sm = el("div", "wiz-small"); sm.append("Geen PDF maar wel de prijzen bij de hand? "); link(sm, "Zelf invullen", () => openModalTab("tabContract"));
       }
-    } else if (step === 2) {
+    } else if (step === "termijn") {
       el("div", "wiz-title", "💶 Je maandbedrag");
       el("div", "wiz-text", "Hoeveel betaal je elke maand aan je energieleverancier? Dat staat op je bankafschrift of in de app van je leverancier. Dan zie je straks of je geld terugkrijgt of moet bijbetalen.");
       const cur = termijnFor(todayKey().slice(0, 7));
       const w = el("div", "wiz-input"); w.append("€ ");
       const inp = document.createElement("input"); inp.type = "number"; inp.inputMode = "decimal"; inp.step = "1"; inp.min = "0"; inp.placeholder = "bijv. 150";
       if (ownReal && cur && Math.abs(cur - TARIFF_DEFAULTS.termijn) > 0.005) inp.value = cur; w.appendChild(inp); w.append(" per maand");
-      if (wizMsg) el("div", "wiz-small", wizMsg).style.color = "var(--gas)";
+      err();
       const b = btns();
       btn(b, "Opslaan ›", true, () => {
         const v = fieldNum(inp.value);
@@ -3300,22 +3374,37 @@
         // geldt voor het huidige contract en een contract dat nog moet ingaan
         contracts.forEach(c => { if (!c.placeholder && !c.demo && (!c.end || c.end >= todayKey())) c.termijn = v; });
         termijnen[todayKey().slice(0, 7)] = v;
-        saveAll(); renderAll(); setWizStep(3);
+        saveAll(); renderAll(); next();
       });
-      btn(b, "Weet ik niet, overslaan", false, () => setWizStep(3));
+      btn(b, "Weet ik niet, overslaan", false, next);
     } else {
       el("div", "wiz-title", "🎉 Klaar!");
       el("div", "wiz-text", ownReal ? "Je overzicht staat hieronder klaar." : "Je overzicht staat hieronder. Zolang je geen contract hebt toegevoegd, rekenen we met voorbeeldprijzen.");
+      if (BRON_EIGEN && !histMonths().length) el("div", "wiz-text", "Je hebt nog geen verbruik toegevoegd, dus het overzicht is nog leeg.").style.marginTop = "6px";
       el("div", "wiz-small", "Wil je deze hulp later nog eens zien? Tik dan rechtsboven op ❓.");
-      const b = btns(); btn(b, "Naar mijn overzicht", true, () => { welcomeForced = false; wizFound = null; LS.set("energie_welkom_v1", "verborgen"); renderWelcome(); window.scrollTo({ top: 0, behavior: "smooth" }); });
-      if (!ownReal) btn(b, "Toch een contract toevoegen", false, () => setWizStep(1));
+      const b = btns(); btn(b, "Naar mijn overzicht", true, () => { welcomeForced = false; wizFound = null; wizHist = null; LS.set("energie_welkom_v1", "verborgen"); renderWelcome(); window.scrollTo({ top: 0, behavior: "smooth" }); });
+      if (BRON_EIGEN && !histMonths().length) btn(b, "Toch verbruik toevoegen", false, () => setWizStep("verbruik"));
+      else if (!ownReal) btn(b, "Toch een contract toevoegen", false, () => setWizStep("contract"));
       const d = el("details", "wiz-more"); d.innerHTML = "<summary>Meer mogelijkheden (niet nodig om te beginnen)</summary><ul></ul>";
       const ul = d.querySelector("ul");
       [["✉️ Maandmail van je leverancier plakken", () => openModalTab("tabMail")],
-       ["📈 Oudere verbruiksgegevens (Excel) toevoegen", () => openModalTab("tabHist")],
+       ["📈 " + (BRON_EIGEN ? "Meer" : "Oudere") + " verbruiksgegevens (Excel) toevoegen", () => openModalTab("tabHist")],
        ["📊 Bekijk wat je zonnepanelen en warmtepomp opleveren", () => document.getElementById("openInsightsBtn").click()]]
         .forEach(([t, fn]) => { const li = document.createElement("li"); link(li, t, fn); ul.appendChild(li); });
     }
+  }
+  // verbruiksbestand kiezen vanuit de stap-voor-stap hulp
+  function startXlsx() { wizXlsx = true; wizMsg = ""; xlsxInput.click(); }
+  function wizXlsxDone(months, errMsg) {
+    wizXlsx = false;
+    if (errMsg || !months.length) {
+      wizMsg = errMsg ? "Dat lukte niet: " + errMsg + "." : "In dit bestand konden we geen verbruik vinden. Probeer een ander bestand (het liefst Excel), of kies 'Nu niet, later doen'.";
+      renderWelcome(); return;
+    }
+    months.sort();
+    wizHist = { from: histMonths()[0], to: histMonths()[histMonths().length - 1] };
+    if (!ALL_DATES.length) { state.mode = "year"; state.cursorDate = dataBounds()[1]; renderAll(); }
+    LS.set(WIZ_KEY, "verbruik"); renderWelcome();
   }
   // PDF kiezen vanuit de stap-voor-stap hulp: het contractvenster blijft dicht
   function startPdf() {
@@ -3333,13 +3422,13 @@
     }
     fillForm(); commit(); renderAll();
     wizFound = contracts.find(x => x.id === c.id) || c;
-    LS.set(WIZ_KEY, 1); renderWelcome();
+    LS.set(WIZ_KEY, "contract"); renderWelcome();
   }
   document.getElementById("welcomeHideBtn").onclick = () => { welcomeForced = false; LS.set("energie_welkom_v1", "verborgen"); renderWelcome(); };
   document.getElementById("openHelpBtn").onclick = () => {
     const card = document.getElementById("welcomeCard");
     if (card.style.display !== "none") { welcomeForced = false; LS.set("energie_welkom_v1", "verborgen"); renderWelcome(); return; }
-    welcomeForced = true; LS.set(WIZ_KEY, 0); wizMsg = ""; renderWelcome();
+    welcomeForced = true; LS.set(WIZ_KEY, "welkom"); wizMsg = ""; renderWelcome();
     if (card.scrollIntoView) card.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   document.getElementById("demoLoadBtn").onclick = () => { if (loadDemo()) location.reload(); };
@@ -3357,8 +3446,9 @@
   document.getElementById("exampleNoteBtn").onclick = () => openModalTab("tabContract");
 
   /* ================= Start ================= */
-  if (!ALL_DATES.length && !histMonths().length) document.getElementById("periodLabel").textContent = "Geen data gevonden (alle_data.js)";
+  if (!ALL_DATES.length && histMonths().length) { state.mode = "year"; state.cursorDate = dataBounds()[1]; }
   renderAll();
+  if (!ALL_DATES.length && !histMonths().length) document.getElementById("periodLabel").textContent = BRON_EIGEN ? "Nog geen verbruik toegevoegd" : "Geen data gevonden (alle_data.js)";
   fetchHistTemps();
 </script>
 </body>

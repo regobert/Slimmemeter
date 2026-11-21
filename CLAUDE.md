@@ -46,6 +46,10 @@
   welkom → contract-PDF (wordt direct uitgelezen en opgeslagen, zonder het contractvenster; PDF zonder stroomprijs wordt geweigerd)
   → maandbedrag → klaar (extra's ingeklapt). Bedoeld voor gebruikers die snel denken dat iets te technisch is: gewone taal, alles overslaanbaar.
   Verschijnt vanzelf zolang er geen eigen contract is, en blijft staan tot "Naar mijn overzicht" of ✕.
+- Verbruiksbron (`energie_bron_v1`): standaard `site` (alle_data.js/remeha_data.js van de eigenaar). Stap 1 van de hulp vraagt
+  "Wil je je eigen verbruik zien?" → `eigen`: ENERGIE_DATA en REMEHA_DATA worden genegeerd, alleen geüploade Excel-maanden (`hist`)
+  tellen, start in jaaroverzicht. Te wijzigen in Historie & back-up (`#bronSelect`) en meegenomen in de back-up (`bron`).
+  Slimmemeterportal-API kan niet vanuit de browser (geen CORS) → voor een App Store-versie is een eigen server of native app nodig.
 - Nieuwe gebruiker krijgt een contract met `placeholder: true` (voorbeeldtarieven, melding `#exampleNote`);
   `commit()` verwijdert het zodra er een eigen contract is.
 - 📊 Inzichten → "Besparingen": teruglevering = −credit − terugleverkosten per jaar; warmtepomp =
