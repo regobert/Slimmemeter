@@ -42,7 +42,9 @@
 
 ## Demo / nieuwe gebruikers
 
-- Startpaneel (`#welcomeCard`, knop ❓ "Hoe begin ik?") met stappen: meterdata, contract, termijn,
+- Startpaneel (`#welcomeCard`, knop ❓ "Hoe begin ik?") is een stap-voor-stap-hulp (één vraag per keer, `energie_wizard_v1` = stap 0–3):
+  welkom → contract-PDF (wordt direct uitgelezen en opgeslagen, zonder het contractvenster; PDF zonder stroomprijs wordt geweigerd)
+  → maandbedrag → klaar (extra's ingeklapt). Bedoeld voor gebruikers die snel denken dat iets te technisch is: gewone taal, alles overslaanbaar.
   optioneel maandtarieven/Excel-historie/Inzichten. Verschijnt vanzelf zolang er geen eigen contract is.
 - Nieuwe gebruiker krijgt een contract met `placeholder: true` (voorbeeldtarieven, melding `#exampleNote`);
   `commit()` verwijdert het zodra er een eigen contract is.

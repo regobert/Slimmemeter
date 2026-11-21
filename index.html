@@ -552,6 +552,28 @@
       .mini-table { font-size: 0.74rem; }
       .ins-chart { height: 220px !important; }
     }
+    .wiz-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 6px; }
+    .wiz-progress { display: flex; align-items: center; gap: 10px; font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+    .wiz-dots { display: inline-flex; gap: 5px; }
+    .wiz-dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--border); display: inline-block; }
+    .wiz-dots i.on { background: var(--accent); }
+    .wiz-dots i.done { background: var(--elec); }
+    .wiz-title { font-size: 1.25rem; font-weight: 800; margin: 4px 0 6px; }
+    .wiz-text { font-size: 0.95rem; line-height: 1.5; max-width: 640px; }
+    .wiz-ok { margin-top: 10px; font-size: 0.9rem; color: var(--elec); font-weight: 700; }
+    .wiz-btns { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; align-items: center; }
+    .wiz-btns .btn-primary { font-size: 1rem; padding: 12px 20px; border-radius: 12px; }
+    .wiz-btns .icon-btn { font-size: 0.95rem; padding: 11px 16px; border-radius: 12px; }
+    .link-btn2 { background: none; border: none; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; font-size: 0.85rem; padding: 0; }
+    .wiz-small { margin-top: 12px; font-size: 0.82rem; color: var(--muted); }
+    .wiz-found { margin-top: 10px; border-collapse: collapse; font-size: 0.92rem; }
+    .wiz-found td { padding: 4px 14px 4px 0; border-bottom: 1px solid var(--border); }
+    .wiz-found td:first-child { color: var(--muted); }
+    .wiz-input { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 1.3rem; font-weight: 700; }
+    .wiz-input input { width: 140px; font-size: 1.3rem; padding: 10px 12px; border-radius: 12px; border: 2px solid var(--accent); background: var(--bg); color: var(--text); }
+    .wiz-more { margin-top: 16px; font-size: 0.85rem; }
+    .wiz-more summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+    .wiz-more ul { margin: 8px 0 0; padding-left: 18px; line-height: 2; }
   </style>
 </head>
 <body>
@@ -576,19 +598,14 @@
   </div>
 
   <div class="card welcome" id="welcomeCard" style="display:none;">
-    <div class="welcome-head">
-      <div>
-        <div class="welcome-title">👋 Welkom bij Mijn Energie</div>
-        <div class="welcome-intro">Dit dashboard laat zien wat je energie kost, wat je zonnepanelen en warmtepomp opleveren en of je termijnbedrag klopt. Het verbruik komt automatisch uit de slimme meter. Jij voegt alleen je contract toe; in een paar minuten ben je klaar.</div>
-      </div>
-      <button class="icon-btn" id="welcomeHideBtn" title="Verbergen (terug te halen met ❓)">✕<span class="lbl-long"> Verbergen</span></button>
+    <div class="wiz-top">
+      <div class="wiz-progress"><span id="wizStepLbl"></span><span class="wiz-dots" id="wizDots"></span></div>
+      <button class="icon-btn" id="welcomeHideBtn" title="Verbergen (terug te halen met ❓)">✕<span class="lbl-long"> Sluiten</span></button>
     </div>
-    <div class="welcome-demo" id="welcomeDemo" style="display:none;">
-      <button type="button" class="btn-primary" id="demoLoadBtn">🎬 Bekijk eerst de demo</button>
-      <span>Laadt voorbeeldcontracten en vier jaar voorbeeldhistorie, zodat alle overzichten gevuld zijn. Met één klik weer weg.</span>
-    </div>
-    <ol class="steps" id="welcomeSteps"></ol>
-    <div class="welcome-foot">🔒 Contracten, tarieven en termijnbedragen blijven alleen in deze browser; er wordt niets naar een server gestuurd. Via <em>Contracten &amp; gegevens → Historie &amp; back-up</em> zet je alles over naar een ander apparaat.</div>
+    <div id="wizBody"></div>
+    <!-- oude elementen (verborgen), worden nog door andere code aangesproken -->
+    <div id="welcomeDemo" style="display:none;"></div>
+    <button type="button" id="demoLoadBtn" style="display:none;"></button>
   </div>
 
   <div class="controls">
@@ -2216,8 +2233,10 @@
       const n = Object.keys(found).length;
       status.textContent = "Nieuw contract toegevoegd: " + n + " waarde(n) herkend" + (notes.length ? " (let op: " + notes.join("; ") + ")" : "") + " — controleer de velden en klik op Opslaan.";
       if (dyn) document.getElementById("newTariffMonth").value = (found.start || todayKey()).slice(0, 7);
+      if (wizPdf) wizPdfDone(c, null, found);
     } catch (err) {
       status.textContent = "Fout bij uitlezen PDF: " + err.message;
+      if (wizPdf) wizPdfDone(null, err.message);
     } finally { pdfInput.value = ""; }
   };
 
@@ -3202,6 +3221,11 @@
     const b = document.querySelector('#modalTabs [data-tab="' + tab + '"]');
     if (b) b.click();
   }
+  // Stap-voor-stap hulp: één vraag tegelijk, alles over te slaan
+  const WIZ_KEY = "energie_wizard_v1";
+  let wizPdf = false, wizFound = null, wizMsg = "";
+  const wizStep = () => +(LS.get(WIZ_KEY, 0) || 0);
+  const setWizStep = n => { LS.set(WIZ_KEY, n); wizMsg = ""; renderWelcome(); };
   function renderWelcome() {
     const own = hasOwnContract();
     const ownReal = contracts.some(c => !c.placeholder && !c.demo), demoOn = !!LS.get(DEMO_KEY, null);
@@ -3211,57 +3235,111 @@
       document.getElementById("demoBandText").textContent = "voorbeeldcontracten en verzonnen verbruikshistorie" + (st ? " tot " + fmtMonth(st) : "") +
         ". Het verbruik daarna (slimme meter) en de warmtepompdata zijn echt. Kijk rond in 📊 Inzichten en 📅 Vergelijken.";
     }
-    document.getElementById("welcomeDemo").style.display = !demoOn && !hasUserData() ? "" : "none";
     document.getElementById("exampleNote").style.display = own ? "none" : "";
     const card = document.getElementById("welcomeCard");
-    const show = welcomeForced || (!own && LS.get("energie_welkom_v1", "") !== "verborgen");
+    const hidden = LS.get("energie_welkom_v1", "") === "verborgen";
+    const step = wizStep();
+    const show = welcomeForced || (!hidden && (!own || step > 0 || wizFound));
     card.style.display = show ? "" : "none";
     if (!show) return;
-    const l = dataBounds()[1];
-    const termijnOk = Object.keys(termijnen).length > 0 || contracts.some(c => !c.placeholder && !c.demo && Math.abs((+c.termijn || 0) - TARIFF_DEFAULTS.termijn) > 0.005);
-    const steps = [
-      { title: "Verbruik is binnen", done: ALL_DATES.length > 0 || histMonths().length > 0,
-        text: ALL_DATES.length ? "Stroom per kwartier en gas per uur uit de slimme meter, van " + fmtDate(ALL_DATES[0]) + " t/m " + fmtDate(l) + ". Wordt elke nacht automatisch bijgewerkt." : "Nog geen meterdata gevonden." },
-      { title: "Voeg je energiecontract toe", done: ownReal,
-        text: "Upload de PDF van je contractbevestiging of tarievenkaart: de tarieven worden er automatisch uitgelezen. Geen PDF bij de hand? Vul ze zelf in.",
-        btn: "📄 Contract toevoegen", primary: true, go: () => { openModalTab("tabContract"); setTimeout(() => { const el = document.getElementById("pdfDropZone"); if (el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 150); } },
-      { title: "Vul je termijnbedrag in", done: termijnOk,
-        text: "Je maandelijkse voorschot. Dan zie je meteen of je aan het eind van het jaar moet bijbetalen of geld terugkrijgt.",
-        btn: "💶 Termijnbedrag invullen", go: () => openModalTab("tabTermijn") },
-      { title: "Maandtarieven", optional: true, done: contracts.some(c => !c.placeholder && !c.demo && Object.keys(c.maandTarieven || {}).length),
-        text: "Heb je een variabel of dynamisch contract? Plak de maandelijkse e-mail van je leverancier; de tarieven worden herkend.",
-        btn: "✉️ E-mail plakken", go: () => openModalTab("tabMail") },
-      { title: "Oudere historie", optional: true, done: !demoOn && histMonths().length > 0,
-        text: "Upload Excel-exports van je leverancier of netbeheerder met verbruik van vóór de slimme-meterdata, voor vergelijkingen over meer jaren.",
-        btn: "📈 Excel uploaden", go: () => openModalTab("tabHist") },
-      { title: "Ontdek je besparingen", optional: true, done: false,
-        text: "In Inzichten zie je wat teruglevering en de warmtepomp opleveren, hoe je stookseizoenen zich verhouden en welke maanden afwijken.",
-        btn: "📊 Inzichten openen", go: () => document.getElementById("openInsightsBtn").click() }
-    ];
-    const nextIdx = steps.findIndex(s => !s.done && !s.optional);
-    const ol = document.getElementById("welcomeSteps"); ol.innerHTML = "";
-    steps.forEach((s, i) => {
-      const li = document.createElement("li");
-      li.className = "step" + (s.done ? " done" : "") + (i === nextIdx ? " next" : "");
-      li.innerHTML = '<div class="step-top"><span class="step-num"></span><span class="step-name"></span></div><div class="step-text"></div>';
-      li.querySelector(".step-num").textContent = s.done ? "✓" : String(i + 1);
-      li.querySelector(".step-name").textContent = s.title;
-      if (s.optional && !s.done) { const o = document.createElement("span"); o.className = "step-opt"; o.textContent = "optioneel"; li.querySelector(".step-top").appendChild(o); }
-      li.querySelector(".step-text").textContent = s.text;
-      if (s.btn) {
-        const b = document.createElement("button");
-        b.type = "button"; b.className = i === nextIdx ? "btn-primary" : "icon-btn";
-        b.textContent = s.done ? s.btn.replace(/toevoegen|invullen|plakken|uploaden/, "bekijken") : s.btn;
-        b.onclick = s.go; li.appendChild(b);
+
+    const N = 4;
+    document.getElementById("wizStepLbl").textContent = "Stap " + (step + 1) + " van " + N;
+    document.getElementById("wizDots").innerHTML = [...Array(N)].map((_, i) => '<i class="' + (i < step ? "done" : i === step ? "on" : "") + '"></i>').join("");
+    const body = document.getElementById("wizBody"); body.innerHTML = "";
+    const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt !== undefined) e.textContent = txt; body.appendChild(e); return e; };
+    const btns = () => el("div", "wiz-btns");
+    const btn = (box, txt, primary, fn) => { const b = document.createElement("button"); b.type = "button"; b.className = primary ? "btn-primary" : "icon-btn"; b.textContent = txt; b.onclick = fn; box.appendChild(b); return b; };
+    const link = (box, txt, fn) => { const b = document.createElement("button"); b.type = "button"; b.className = "link-btn2"; b.textContent = txt; b.onclick = fn; box.appendChild(b); return b; };
+
+    if (step === 0) {
+      el("div", "wiz-title", "👋 Welkom bij Mijn Energie");
+      el("div", "wiz-text", "Hier zie je wat je energie kost en wat je zonnepanelen en warmtepomp opleveren. Je verbruik wordt al vanzelf bijgehouden — daar hoef je niets voor te doen.");
+      if (ALL_DATES.length) el("div", "wiz-ok", "✓ Verbruik bijgehouden tot en met " + fmtDate(ALL_DATES[ALL_DATES.length - 1]));
+      el("div", "wiz-text", "We stellen je nog twee korte vragen. Elke vraag mag je overslaan.").style.marginTop = "10px";
+      const b = btns(); btn(b, "Beginnen ›", true, () => setWizStep(1));
+      if (!hasUserData() && !demoOn) { const sm = el("div", "wiz-small"); sm.append("Liever eerst rondkijken? "); link(sm, "Bekijk het met voorbeeldgegevens", () => { if (loadDemo()) location.reload(); }); }
+    } else if (step === 1) {
+      el("div", "wiz-title", "📄 Je energiecontract");
+      if (wizFound) {
+        el("div", "wiz-text", "Dit hebben we in de PDF gevonden:");
+        const t = el("table", "wiz-found");
+        const f = wizFound, row = (k, v) => { const tr = t.insertRow(); tr.insertCell().textContent = k; tr.insertCell().textContent = v; };
+        row("Leverancier", f.leverancier || "onbekend");
+        row("Startdatum", f.start ? fmtDate(f.start) : "onbekend");
+        row("Stroom", f.tariffType === "single" ? "€ " + nf2.format(f.elecPeak) + " per kWh" : "€ " + nf2.format(f.elecPeak) + " / € " + nf2.format(f.elecOffPeak) + " per kWh");
+        row("Gas", "€ " + nf2.format(f.gasRate) + " per m³");
+        const b = btns();
+        btn(b, "✓ Klopt, verder ›", true, () => { wizFound = null; setWizStep(2); });
+        btn(b, "Iets aanpassen", false, () => { wizFound = null; openModalTab("tabContract"); });
+      } else if (ownReal) {
+        const c = contractFor(todayKey());
+        el("div", "wiz-ok", "✓ Je contract staat erin: " + c.naam);
+        const b = btns(); btn(b, "Verder ›", true, () => setWizStep(2));
+        const sm = el("div", "wiz-small"); link(sm, "Nog een contract toevoegen", () => startPdf());
+      } else {
+        el("div", "wiz-text", "Heb je de PDF van je energiecontract? Die zit meestal als bijlage bij de bevestigingsmail van je energieleverancier.");
+        if (wizMsg) el("div", "wiz-small", wizMsg).style.color = "var(--gas)";
+        const b = btns();
+        btn(b, "📄 Ja, PDF kiezen", true, () => startPdf());
+        btn(b, "Nu niet, later doen", false, () => setWizStep(2));
+        const sm = el("div", "wiz-small"); sm.append("Geen PDF maar wel de prijzen bij de hand? "); link(sm, "Zelf invullen", () => openModalTab("tabContract"));
       }
-      ol.appendChild(li);
-    });
+    } else if (step === 2) {
+      el("div", "wiz-title", "💶 Je maandbedrag");
+      el("div", "wiz-text", "Hoeveel betaal je elke maand aan je energieleverancier? Dat staat op je bankafschrift of in de app van je leverancier. Dan zie je straks of je geld terugkrijgt of moet bijbetalen.");
+      const cur = termijnFor(todayKey().slice(0, 7));
+      const w = el("div", "wiz-input"); w.append("€ ");
+      const inp = document.createElement("input"); inp.type = "number"; inp.inputMode = "decimal"; inp.step = "1"; inp.min = "0"; inp.placeholder = "bijv. 150";
+      if (ownReal && cur && Math.abs(cur - TARIFF_DEFAULTS.termijn) > 0.005) inp.value = cur; w.appendChild(inp); w.append(" per maand");
+      if (wizMsg) el("div", "wiz-small", wizMsg).style.color = "var(--gas)";
+      const b = btns();
+      btn(b, "Opslaan ›", true, () => {
+        const v = fieldNum(inp.value);
+        if (v === null || v <= 0) { wizMsg = "Vul een bedrag in, bijvoorbeeld 150. Of kies 'Weet ik niet'."; renderWelcome(); return; }
+        // geldt voor het huidige contract en een contract dat nog moet ingaan
+        contracts.forEach(c => { if (!c.placeholder && !c.demo && (!c.end || c.end >= todayKey())) c.termijn = v; });
+        termijnen[todayKey().slice(0, 7)] = v;
+        saveAll(); renderAll(); setWizStep(3);
+      });
+      btn(b, "Weet ik niet, overslaan", false, () => setWizStep(3));
+    } else {
+      el("div", "wiz-title", "🎉 Klaar!");
+      el("div", "wiz-text", ownReal ? "Je overzicht staat hieronder klaar." : "Je overzicht staat hieronder. Zolang je geen contract hebt toegevoegd, rekenen we met voorbeeldprijzen.");
+      el("div", "wiz-small", "Wil je deze hulp later nog eens zien? Tik dan rechtsboven op ❓.");
+      const b = btns(); btn(b, "Naar mijn overzicht", true, () => { welcomeForced = false; wizFound = null; LS.set("energie_welkom_v1", "verborgen"); renderWelcome(); window.scrollTo({ top: 0, behavior: "smooth" }); });
+      if (!ownReal) btn(b, "Toch een contract toevoegen", false, () => setWizStep(1));
+      const d = el("details", "wiz-more"); d.innerHTML = "<summary>Meer mogelijkheden (niet nodig om te beginnen)</summary><ul></ul>";
+      const ul = d.querySelector("ul");
+      [["✉️ Maandmail van je leverancier plakken", () => openModalTab("tabMail")],
+       ["📈 Oudere verbruiksgegevens (Excel) toevoegen", () => openModalTab("tabHist")],
+       ["📊 Bekijk wat je zonnepanelen en warmtepomp opleveren", () => document.getElementById("openInsightsBtn").click()]]
+        .forEach(([t, fn]) => { const li = document.createElement("li"); link(li, t, fn); ul.appendChild(li); });
+    }
+  }
+  // PDF kiezen vanuit de stap-voor-stap hulp: het contractvenster blijft dicht
+  function startPdf() {
+    openModal(); modal.classList.remove("open");
+    wizPdf = true; wizMsg = "";
+    pdfInput.click();
+  }
+  function wizPdfDone(c, err, found) {
+    wizPdf = false;
+    if (err) { wizMsg = "Dat lukte niet: " + err + ". Probeer een andere PDF, of kies 'Nu niet, later doen'."; renderWelcome(); return; }
+    if (!(found && found.elecPeak > 0)) {
+      draft = draft.filter(x => x.id !== c.id);
+      wizMsg = "In deze PDF konden we geen prijzen vinden. Is het misschien een rekening in plaats van het contract? Probeer een andere PDF, of kies 'Nu niet, later doen'.";
+      renderWelcome(); return;
+    }
+    fillForm(); commit(); renderAll();
+    wizFound = contracts.find(x => x.id === c.id) || c;
+    LS.set(WIZ_KEY, 1); renderWelcome();
   }
   document.getElementById("welcomeHideBtn").onclick = () => { welcomeForced = false; LS.set("energie_welkom_v1", "verborgen"); renderWelcome(); };
   document.getElementById("openHelpBtn").onclick = () => {
     const card = document.getElementById("welcomeCard");
     if (card.style.display !== "none") { welcomeForced = false; LS.set("energie_welkom_v1", "verborgen"); renderWelcome(); return; }
-    welcomeForced = true; renderWelcome();
+    welcomeForced = true; LS.set(WIZ_KEY, 0); wizMsg = ""; renderWelcome();
     if (card.scrollIntoView) card.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   document.getElementById("demoLoadBtn").onclick = () => { if (loadDemo()) location.reload(); };
