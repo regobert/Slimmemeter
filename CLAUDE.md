@@ -28,7 +28,8 @@
 
 - **Persoonlijke gegevens nooit in de repository**: contracten, tarieven, termijnen en Excel-historie
   staan alleen in `localStorage` van de browser (`energie_contracts_v1`, `energie_termijnen_v1`,
-  `energie_hist_v1`, `energie_histtemp_v1`, `energie_gd_v1`, `energie_wp_v1`, `energie_theme_v2`).
+  `energie_hist_v1`, `energie_histtemp_v1`, `energie_gd_v1`, `energie_wp_v1`, `energie_theme_v2`,
+  `energie_welkom_v1` = startpaneel verborgen).
   Overzetten tussen apparaten gaat via back-up/contractbestanden (.json) in de app.
 - Kostenmodel: saldering per contract (`auto` = per contractjaar t/m 31-12-2026, daarna geen saldering (`geen`);
   `jaar`; `dag`; `geen` = dynamisch, afname en teruglevering elk tegen eigen maandtarief).
@@ -38,6 +39,15 @@
   Bij een vast contract neemt "E-mail plakken" geen tarieven over, alleen termijnbedragen.
 - Bij twijfel over cijfers: vergelijk met de echte nota's; verschil van ~2% op gas komt door de
   calorische correctie (nota's) versus ruwe m³ (Excel/meter).
+
+## Demo / nieuwe gebruikers
+
+- Startpaneel (`#welcomeCard`, knop ❓ "Hoe begin ik?") met stappen: meterdata, contract, termijn,
+  optioneel maandtarieven/Excel-historie/Inzichten. Verschijnt vanzelf zolang er geen eigen contract is.
+- Nieuwe gebruiker krijgt een contract met `placeholder: true` (voorbeeldtarieven, melding `#exampleNote`);
+  `commit()` verwijdert het zodra er een eigen contract is.
+- 📊 Inzichten → "Besparingen": teruglevering = −credit − terugleverkosten per jaar; warmtepomp =
+  WP-warmte ÷ (9,77 × 90% ketelrendement) × gasprijs − WP-stroom × gem. normaal/dal (alleen dagen met WP/ketel-splitsing).
 
 ## Werkwijze
 
