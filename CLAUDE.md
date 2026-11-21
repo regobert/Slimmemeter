@@ -49,6 +49,11 @@
 - 📊 Inzichten → "Besparingen": teruglevering = −credit − terugleverkosten per jaar; warmtepomp =
   WP-warmte ÷ (9,77 × 90% ketelrendement) × gasprijs − WP-stroom × gem. normaal/dal (alleen dagen met WP/ketel-splitsing).
 
+- Demomodus (`energie_demo_v1` = {months, stop, wp}): knop "🎬 Bekijk eerst de demo" in het startpaneel of de link
+  `?demo` (alleen als er nog geen eigen contract/historie is). Laadt 5 contracten "Voorbeeld Energie" (`demo: true`)
+  en verzonnen maandhistorie vanaf 2022 tot de eerste meterdag, afgeleid van de echte Remeha-data; zet WP-start 2023-11.
+  Blauwe demobalk met "Demo stoppen"; het eerste eigen contract ruimt de demo ook op (`commit()`).
+
 ## Werkwijze
 
 - Test wijzigingen met Playwright (Chromium is voorgeïnstalleerd). CDN's zijn in de sandbox

@@ -477,6 +477,10 @@
     .step-opt { font-size: 0.68rem; font-weight: 600; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 0 5px; margin-left: auto; }
     .step .icon-btn, .step .btn-primary { align-self: flex-start; margin-top: 2px; font-size: 0.78rem; padding: 5px 10px; }
     @media (min-width: 900px) { .steps { grid-template-columns: repeat(3, 1fr); } }
+    .welcome-demo { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 12px 0 0; padding: 10px 12px; border-radius: 12px; background: var(--return-soft); font-size: 0.8rem; }
+    .demo-band { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 12px; padding: 8px 12px;
+      border-radius: 12px; background: var(--return-soft); border: 1px solid var(--return); font-size: 0.82rem; }
+    .demo-band .icon-btn { font-size: 0.78rem; padding: 5px 10px; }
     .welcome-foot { font-size: 0.74rem; color: var(--muted); }
     .example-note { font-size: 0.76rem; color: var(--muted); background: var(--bg); border-radius: 10px; padding: 6px 10px; margin: -2px 0 10px; }
     .link-btn { border: none; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 700; cursor: pointer; text-decoration: underline; }
@@ -566,6 +570,11 @@
     </div>
   </div>
 
+  <div class="demo-band" id="demoBand" style="display:none;">
+    <span>🎬 <strong>Demo</strong> — <span id="demoBandText"></span></span>
+    <button type="button" class="icon-btn" id="demoStopBtn">Demo stoppen en zelf beginnen</button>
+  </div>
+
   <div class="card welcome" id="welcomeCard" style="display:none;">
     <div class="welcome-head">
       <div>
@@ -573,6 +582,10 @@
         <div class="welcome-intro">Dit dashboard laat zien wat je energie kost, wat je zonnepanelen en warmtepomp opleveren en of je termijnbedrag klopt. Het verbruik komt automatisch uit de slimme meter. Jij voegt alleen je contract toe; in een paar minuten ben je klaar.</div>
       </div>
       <button class="icon-btn" id="welcomeHideBtn" title="Verbergen (terug te halen met ❓)">✕<span class="lbl-long"> Verbergen</span></button>
+    </div>
+    <div class="welcome-demo" id="welcomeDemo" style="display:none;">
+      <button type="button" class="btn-primary" id="demoLoadBtn">🎬 Bekijk eerst de demo</button>
+      <span>Laadt voorbeeldcontracten en vier jaar voorbeeldhistorie, zodat alle overzichten gevuld zijn. Met één klik weer weg.</span>
     </div>
     <ol class="steps" id="welcomeSteps"></ol>
     <div class="welcome-foot">🔒 Contracten, tarieven en termijnbedragen blijven alleen in deze browser; er wordt niets naar een server gestuurd. Via <em>Contracten &amp; gegevens → Historie &amp; back-up</em> zet je alles over naar een ander apparaat.</div>
@@ -1065,6 +1078,68 @@
   function newContract(o) {
     return Object.assign({ id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), naam: "Contract", start: "2026-10-01", end: "", maandTarieven: {}, saldering: "auto" }, TARIFF_DEFAULTS, o || {});
   }
+
+  /* ================= Demo: voorbeeldcontracten + voorbeeldhistorie ================= */
+  // Alleen voor wie nog niets heeft ingevoerd. De historie vóór de meterdata is verzonnen, maar sluit aan op de
+  // echte warmtepompdata (Remeha); meterdata vanaf de eerste dag in alle_data.js is echt.
+  const DEMO_KEY = "energie_demo_v1";
+  function hasUserData() {
+    const c = LS.get("energie_contracts_v1", null), h = LS.get("energie_hist_v1", {});
+    return (Array.isArray(c) && c.some(x => !x.placeholder && !x.demo)) || (!LS.get(DEMO_KEY, null) && Object.keys(h || {}).length > 0);
+  }
+  function buildDemo() {
+    const R = {};
+    Object.entries(window.REMEHA_DATA || {}).forEach(([k, d]) => {
+      const x = R[k.slice(0, 7)] = R[k.slice(0, 7)] || { wp: 0, ketel: 0, uit: 0, split: false };
+      x.wp += d.wp_in || 0; x.ketel += (d.ketel_in || 0) + (d.ketel_ww_in || 0); x.uit += d.uit || 0;
+      if (d.wp_in || d.wp_uit || d.ketel_in || d.ketel_uit) x.split = true;
+    });
+    const dates = Object.keys(window.ENERGIE_DATA || {}).sort(), now = new Date();
+    const stop = dates.length ? dates[0].slice(0, 7) : now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+    let seed = 7;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return 0.94 + 0.12 * (seed / 2147483647); };
+    const HEAT = [0.17, 0.15, 0.12, 0.08, 0.03, 0.01, 0.01, 0.01, 0.03, 0.08, 0.13, 0.18];   // gas voor verwarming, aandeel per maand
+    const PV = [0.03, 0.05, 0.08, 0.11, 0.13, 0.13, 0.13, 0.11, 0.09, 0.06, 0.03, 0.02];      // opwek zonnepanelen
+    const BASE = [230, 205, 210, 190, 185, 175, 180, 180, 185, 200, 215, 235];                  // huishoudelijk stroomverbruik kWh
+    const hist = {};
+    for (let y = 2022; y <= +stop.slice(0, 4); y++) for (let mo = 1; mo <= 12; mo++) {
+      const m = y + "-" + String(mo).padStart(2, "0"), i = mo - 1;
+      if (m >= stop) continue;
+      const f = rnd(), r = R[m];
+      let wp = 0, gas;
+      if (m < "2023-11") gas = 1250 * HEAT[i] * f + 10;                                    // nog alleen cv-ketel
+      else if (r && r.split) { wp = r.wp; gas = r.ketel / 9.77 * 0.93 + 10; }               // echte verdeling warmtepomp/ketel
+      else if (r) { wp = r.uit * 0.6 / 3.5; gas = r.uit * 0.4 / 0.9 / 9.77 + 10; }          // Remeha alleen totaal: schatting
+      else gas = 10 * f;                                                                    // zomer: warm water en koken
+      const pv = m >= "2023-04" ? 4400 * PV[i] * rnd() : 0;
+      const self = Math.min(pv * 0.3, BASE[i] * 0.6);                                       // direct zelf verbruikt
+      hist[m] = { afn: Math.round(BASE[i] * f + wp - self), ret: Math.round(pv - self), gas: Math.round(gas) };
+    }
+    const C = (start, end, soort, o) => Object.assign({ id: "demo" + start.slice(0, 4), naam: "Voorbeeld Energie jan " + start.slice(0, 4), leverancier: "Voorbeeld Energie",
+      start, end, soort, tariffType: "double", saldering: "auto", maandTarieven: {}, feedInCost: 0, demo: true }, o);
+    const contracts = [
+      C("2022-01-01", "2022-12-31", "vast",     { elecPeak: 0.29, elecOffPeak: 0.27, feedInRate: 0.07, gasRate: 1.20, fixedSupplyDay: 0.20, gridDay: 1.25, taxCreditDay: -1.41, termijn: 150 }),
+      C("2023-01-01", "2023-12-31", "variabel", { elecPeak: 0.40, elecOffPeak: 0.40, feedInRate: 0.10, gasRate: 1.45, fixedSupplyDay: 0.22, gridDay: 1.30, taxCreditDay: -1.65, termijn: 190 }),
+      C("2024-01-01", "2024-12-31", "vast",     { elecPeak: 0.31, elecOffPeak: 0.29, feedInRate: 0.08, gasRate: 1.40, fixedSupplyDay: 0.25, gridDay: 1.55, taxCreditDay: -1.65, termijn: 160 }),
+      C("2025-01-01", "2025-12-31", "vast",     { elecPeak: 0.27, elecOffPeak: 0.25, feedInRate: 0.05, feedInCost: 0.02, gasRate: 1.33, fixedSupplyDay: 0.25, gridDay: 1.70, taxCreditDay: -1.74, termijn: 140 }),
+      C("2026-01-01", "",           "vast",     { elecPeak: 0.26, elecOffPeak: 0.24, feedInRate: 0.04, feedInCost: 0.02, gasRate: 1.30, fixedSupplyDay: 0.25, gridDay: 1.75, taxCreditDay: -1.72, termijn: 125 })
+    ];
+    return { contracts, hist, stop };
+  }
+  function loadDemo() {
+    if (hasUserData()) return false;
+    const d = buildDemo();
+    LS.set("energie_contracts_v1", d.contracts);
+    LS.set("energie_hist_v1", d.hist);
+    LS.set("energie_termijnen_v1", {});
+    const setWp = !LS.get("energie_wp_v1", "");
+    if (setWp) LS.set("energie_wp_v1", "2023-11");
+    LS.set(DEMO_KEY, { months: Object.keys(d.hist), stop: d.stop, wp: setWp });
+    return true;
+  }
+  // via de link ...?demo komt een bezoeker direct in de demo
+  if (/[?&]demo\b/.test(location.search) && !LS.get(DEMO_KEY, null)) loadDemo();
+  const demoInfo = LS.get(DEMO_KEY, null);
 
   let contracts = LS.get("energie_contracts_v1", null);
   if (!Array.isArray(contracts) || !contracts.length) {
@@ -2033,6 +2108,15 @@
       if (c.placeholder && (String(c.leverancier || "").trim() || DEFAULT_KEYS.some(k => Math.abs((+c[k] || 0) - TARIFF_DEFAULTS[k]) > 1e-9))) delete c.placeholder;
     });
     if (draft.some(c => !c.placeholder)) draft = draft.filter(c => !c.placeholder);
+    // eerste eigen contract tijdens de demo: demo opruimen, het eigen contract blijft
+    const dm = LS.get(DEMO_KEY, null);
+    if (dm && draft.some(c => !c.demo && !c.placeholder)) {
+      draft = draft.filter(c => !c.demo);
+      (dm.months || []).forEach(m => delete hist[m]);
+      if (dm.wp) { wpStart = ""; LS.set("energie_wp_v1", ""); document.getElementById("wpStartInput").value = ""; }
+      try { localStorage.removeItem(DEMO_KEY); } catch (e) {}
+      clearCostCache();
+    }
     if (!draft.some(c => c.id === selId) && draft.length) selId = draft[0].id;
     contracts = draft.map(c => Object.assign({}, c));
     termijnen = Object.assign({}, draftTermijnen);
@@ -2057,7 +2141,7 @@
   document.getElementById("addContractBtn").onclick = () => {
     readForm();
     const prev = selContract();
-    const c = newContract(Object.assign({}, prev, { id: undefined, placeholder: undefined, leverancier: "", start: todayKey(), end: "", maandTarieven: {} }));
+    const c = newContract(Object.assign({}, prev, { id: undefined, placeholder: undefined, demo: undefined, leverancier: "", start: todayKey(), end: "", maandTarieven: {} }));
     c.naam = autoName(c);
     c.id = "c" + Date.now().toString(36);
     draft.push(c); selId = c.id; fillForm(); scrollToEdit();
@@ -2122,7 +2206,7 @@
       readForm();
       const dyn = found.dynamisch; delete found.dynamisch;
       found.soort = dyn ? "dynamisch" : "vast";
-      const c = newContract(Object.assign({}, selContract(), { placeholder: undefined, naam: file.name.replace(/\.pdf$/i, ""), start: todayKey(), end: "", maandTarieven: {}, saldering: "auto" }, found));
+      const c = newContract(Object.assign({}, selContract(), { placeholder: undefined, demo: undefined, naam: file.name.replace(/\.pdf$/i, ""), start: todayKey(), end: "", maandTarieven: {}, saldering: "auto" }, found));
       c.id = "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); // altijd een nieuw id
       c.leverancier = found.naam || supplierFromName(file.name.replace(/\.pdf$/i, "")) || "";
       c.bron = "pdf"; c.pdfStart = !!found.start;
@@ -2790,7 +2874,8 @@
     const yLabel = r => isFull(r) ? String(r.y) : r.y + " (t/m " + MONTHS_SHORT[+r.last.slice(5, 7) - 1] + ")";
     const est = (r, f) => (f || !isFull(r) ? " ≈" : "");
     // samenvatting: laatste volledige jaar + totaal
-    const full = rows.filter(r => isFull(r) && r.ret > 0 && r.wpDays > 300);
+    const anyWp = rows.some(r => r.wpDays > 0);
+    const full = rows.filter(r => isFull(r) && r.ret > 0 && (r.wpDays > 0 || !anyWp));
     const ref = full.length ? full[full.length - 1] : rows[rows.length - 1];
     const refLbl = isFull(ref) ? String(ref.y) : ref.y + " t/m " + MONTHS_SHORT[+ref.last.slice(5, 7) - 1];
     card("Teruglevering — " + refLbl, euro0(ref.retEur) + est(ref, ref.retEst),
@@ -2857,6 +2942,7 @@
       list.forEach(raw => {
         if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw.start || "")) return;
         const c = normalizeContract(newContract(Object.assign({}, raw)));
+        delete c.demo; delete c.placeholder;
         c.id = "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
         const i = draft.findIndex(x => x.naam === c.naam && x.start === c.start);
         if (i >= 0) { draft[i] = c; replaced++; } else { draft.push(c); added++; }
@@ -3118,26 +3204,34 @@
   }
   function renderWelcome() {
     const own = hasOwnContract();
+    const ownReal = contracts.some(c => !c.placeholder && !c.demo), demoOn = !!LS.get(DEMO_KEY, null);
+    document.getElementById("demoBand").style.display = demoOn ? "" : "none";
+    if (demoOn) {
+      const st = (LS.get(DEMO_KEY, {}).stop || "");
+      document.getElementById("demoBandText").textContent = "voorbeeldcontracten en verzonnen verbruikshistorie" + (st ? " tot " + fmtMonth(st) : "") +
+        ". Het verbruik daarna (slimme meter) en de warmtepompdata zijn echt. Kijk rond in 📊 Inzichten en 📅 Vergelijken.";
+    }
+    document.getElementById("welcomeDemo").style.display = !demoOn && !hasUserData() ? "" : "none";
     document.getElementById("exampleNote").style.display = own ? "none" : "";
     const card = document.getElementById("welcomeCard");
     const show = welcomeForced || (!own && LS.get("energie_welkom_v1", "") !== "verborgen");
     card.style.display = show ? "" : "none";
     if (!show) return;
-    const [f, l] = dataBounds();
-    const termijnOk = Object.keys(termijnen).length > 0 || contracts.some(c => !c.placeholder && Math.abs((+c.termijn || 0) - TARIFF_DEFAULTS.termijn) > 0.005);
+    const l = dataBounds()[1];
+    const termijnOk = Object.keys(termijnen).length > 0 || contracts.some(c => !c.placeholder && !c.demo && Math.abs((+c.termijn || 0) - TARIFF_DEFAULTS.termijn) > 0.005);
     const steps = [
       { title: "Verbruik is binnen", done: ALL_DATES.length > 0 || histMonths().length > 0,
-        text: ALL_DATES.length ? "Stroom per kwartier en gas per uur uit de slimme meter, van " + fmtDate(f) + " t/m " + fmtDate(l) + ". Wordt elke nacht automatisch bijgewerkt." : "Nog geen meterdata gevonden." },
-      { title: "Voeg je energiecontract toe", done: own,
+        text: ALL_DATES.length ? "Stroom per kwartier en gas per uur uit de slimme meter, van " + fmtDate(ALL_DATES[0]) + " t/m " + fmtDate(l) + ". Wordt elke nacht automatisch bijgewerkt." : "Nog geen meterdata gevonden." },
+      { title: "Voeg je energiecontract toe", done: ownReal,
         text: "Upload de PDF van je contractbevestiging of tarievenkaart: de tarieven worden er automatisch uitgelezen. Geen PDF bij de hand? Vul ze zelf in.",
         btn: "📄 Contract toevoegen", primary: true, go: () => { openModalTab("tabContract"); setTimeout(() => { const el = document.getElementById("pdfDropZone"); if (el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 150); } },
       { title: "Vul je termijnbedrag in", done: termijnOk,
         text: "Je maandelijkse voorschot. Dan zie je meteen of je aan het eind van het jaar moet bijbetalen of geld terugkrijgt.",
         btn: "💶 Termijnbedrag invullen", go: () => openModalTab("tabTermijn") },
-      { title: "Maandtarieven", optional: true, done: contracts.some(c => !c.placeholder && Object.keys(c.maandTarieven || {}).length),
+      { title: "Maandtarieven", optional: true, done: contracts.some(c => !c.placeholder && !c.demo && Object.keys(c.maandTarieven || {}).length),
         text: "Heb je een variabel of dynamisch contract? Plak de maandelijkse e-mail van je leverancier; de tarieven worden herkend.",
         btn: "✉️ E-mail plakken", go: () => openModalTab("tabMail") },
-      { title: "Oudere historie", optional: true, done: histMonths().length > 0,
+      { title: "Oudere historie", optional: true, done: !demoOn && histMonths().length > 0,
         text: "Upload Excel-exports van je leverancier of netbeheerder met verbruik van vóór de slimme-meterdata, voor vergelijkingen over meer jaren.",
         btn: "📈 Excel uploaden", go: () => openModalTab("tabHist") },
       { title: "Ontdek je besparingen", optional: true, done: false,
@@ -3169,6 +3263,18 @@
     if (card.style.display !== "none") { welcomeForced = false; LS.set("energie_welkom_v1", "verborgen"); renderWelcome(); return; }
     welcomeForced = true; renderWelcome();
     if (card.scrollIntoView) card.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  document.getElementById("demoLoadBtn").onclick = () => { if (loadDemo()) location.reload(); };
+  document.getElementById("demoStopBtn").onclick = () => {
+    const d = LS.get(DEMO_KEY, null);
+    if (d) {
+      contracts = contracts.filter(c => !c.demo);
+      (d.months || []).forEach(m => delete hist[m]);
+      if (d.wp) LS.set("energie_wp_v1", "");
+      saveAll();
+      try { localStorage.removeItem(DEMO_KEY); localStorage.removeItem("energie_welkom_v1"); } catch (e) {}
+    }
+    location.href = location.pathname; // zonder ?demo, anders start de demo opnieuw
   };
   document.getElementById("exampleNoteBtn").onclick = () => openModalTab("tabContract");
 
