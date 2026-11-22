@@ -61,6 +61,7 @@
   `commit()` verwijdert het zodra er een eigen contract is.
 - Inzichten: tabellen standaard ingeklapt (`details.ins-tbl`). Besparingsgrafiek zoomt in met een tik: jaren → maanden → dagen
   (`saveView`, navigatie `#saveNav`); de kaartjes erboven volgen de gekozen periode.
+  Bladeren met ‹ › (`saveStep`), vegen op de grafiek of pijltjestoetsen: per jaar (maandweergave) of per maand (dagweergave).
 - 📊 Inzichten → "Besparingen": teruglevering = −credit − terugleverkosten per jaar; warmtepomp =
   WP-warmte ÷ (9,77 × 90% ketelrendement) × gasprijs − WP-stroom × gem. normaal/dal (alleen dagen met WP/ketel-splitsing).
 
