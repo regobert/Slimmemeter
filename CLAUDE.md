@@ -52,6 +52,8 @@
   Slimmemeterportal-API kan niet vanuit de browser (geen CORS) → voor een App Store-versie is een eigen server of native app nodig.
 - Nieuwe gebruiker krijgt een contract met `placeholder: true` (voorbeeldtarieven, melding `#exampleNote`);
   `commit()` verwijdert het zodra er een eigen contract is.
+- Inzichten: tabellen standaard ingeklapt (`details.ins-tbl`). Besparingsgrafiek zoomt in met een tik: jaren → maanden → dagen
+  (`saveView`, navigatie `#saveNav`); de kaartjes erboven volgen de gekozen periode.
 - 📊 Inzichten → "Besparingen": teruglevering = −credit − terugleverkosten per jaar; warmtepomp =
   WP-warmte ÷ (9,77 × 90% ketelrendement) × gasprijs − WP-stroom × gem. normaal/dal (alleen dagen met WP/ketel-splitsing).
 
