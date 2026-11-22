@@ -12,6 +12,13 @@
 - Weergave: 📊 Inzichten → "Warmtepomp (Remeha)" (aandeel WP, COP, WP-stroom t.o.v. afname, ketelgas).
 - Warm water komt bij deze hybride van de cv-ketel (hotWater-velden zijn 0).
 
+## Experiment nachtverlaging (lopend)
+
+- Thermostaat (Remeha, Zone1): week 1 = zo 22 nov t/m za 28 nov 2026 met verlaging: 18,5 °C van 21:00 tot 07:30, 19,5 °C overdag.
+  Week 2 = zo 29 nov t/m za 5 dec: dag en nacht 19,5 °C. Daarna vergelijken (ketelgas 05–09 u, ketel_in, WP-stroom, per graaddag, in euro's).
+- Uitgangspunt uit de analyse van 20 okt–21 nov: warmte/dag ≈ 104 − 6,6 × T_buiten kWh (≈ 274 W/K), COP nov 4,2;
+  op koude dagen ~1 m³ extra ketelgas tussen 05 en 09 u.
+
 ## Project in het kort
 
 - Statische site via GitHub Pages: `https://regobert.github.io/Slimmemeter/` (branch `main`).
