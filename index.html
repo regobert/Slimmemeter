@@ -644,7 +644,7 @@
         <div class="kpi-tile elec selected" id="tileElec">
           <div class="kpi-head"><span>⚡ Elektriciteit</span><span>Bekijk ›</span></div>
           <div class="kpi-euro" id="elecEuro">€ 0,00</div>
-          <div class="kpi-sub" id="elecSub">Afname: 0 kWh<br>Terug: 0 kWh</div>
+          <div class="kpi-sub" id="elecSub">Verbruik: 0 kWh<br>Terug: 0 kWh</div>
         </div>
         <div class="kpi-tile gas" id="tileGas">
           <div class="kpi-head"><span>🔥 Gas</span><span>Bekijk ›</span></div>
@@ -675,7 +675,7 @@
           <table class="mini-table" id="costTable"><tbody></tbody></table>
           <div id="forecastMonthsWrap" style="margin-top:8px;">
             <div class="hint" style="margin:0 0 4px;"><strong>Verwachting per maand</strong> — verwacht verbruik (gemiddelde van dezelfde maand sinds <span id="fcFrom"></span>) × prijs van dat moment.</div>
-            <div class="table-scroll"><table class="mini-table fc-table" id="forecastMonths"><thead><tr><th>Maand</th><th class="num">Afname</th><th class="num">Terug</th><th class="num">Gas</th><th class="num">Vast</th><th class="num">Totaal</th></tr></thead><tbody></tbody></table></div>
+            <div class="table-scroll"><table class="mini-table fc-table" id="forecastMonths"><thead><tr><th>Maand</th><th class="num">Verbruik</th><th class="num">Terug</th><th class="num">Gas</th><th class="num">Vast</th><th class="num">Totaal</th></tr></thead><tbody></tbody></table></div>
           </div>
         </details>
 
@@ -821,7 +821,7 @@
             <option value="auto">Automatisch: per jaar t/m 2026, daarna geen saldering</option>
             <option value="jaar">Per (contract)jaar — salderingsregeling</option>
             <option value="dag">Per dag wegstrepen</option>
-            <option value="geen">Geen — afname en teruglevering elk tegen eigen (dynamisch) tarief</option>
+            <option value="geen">Geen — verbruik en teruglevering elk tegen eigen (dynamisch) tarief</option>
           </select>
         </div>
         <div class="field">
@@ -932,7 +932,7 @@
         <div class="status-msg" id="xlsxStatus"></div>
       </div>
       <table class="mini-table" id="histTable">
-        <thead><tr><th>Jaar</th><th>Maanden</th><th>Afname kWh</th><th>Terug kWh</th><th>Gas m³</th></tr></thead>
+        <thead><tr><th>Jaar</th><th>Maanden</th><th>Verbruik kWh</th><th>Terug kWh</th><th>Gas m³</th></tr></thead>
         <tbody></tbody>
       </table>
       <div class="row-actions" style="margin-top:8px;">
@@ -988,7 +988,7 @@
     <details class="cost-details ins-tbl"><summary>Tabel met cijfers</summary>
     <div class="table-scroll">
       <table class="mini-table" id="yearTable">
-        <thead><tr><th>Jaar</th><th class="num">Afname kWh</th><th class="num">Terug kWh</th><th class="num">Netto kWh</th><th class="num">Gas m³</th><th class="num">Graaddagen</th><th class="num">Kosten</th></tr></thead>
+        <thead><tr><th>Jaar</th><th class="num">Verbruik kWh</th><th class="num">Terug kWh</th><th class="num">Netto kWh</th><th class="num">Gas m³</th><th class="num">Graaddagen</th><th class="num">Kosten</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -1005,7 +1005,7 @@
     <details class="cost-details ins-tbl"><summary>Tabel met cijfers</summary>
     <div class="table-scroll">
       <table class="mini-table" id="seasonTable">
-        <thead><tr><th>Seizoen</th><th class="num">Gas m³</th><th class="num">Afname kWh</th><th class="num">Graaddagen</th><th class="num">Gas / 1.000 GD</th><th class="num">Stroom / 1.000 GD</th><th></th></tr></thead>
+        <thead><tr><th>Seizoen</th><th class="num">Gas m³</th><th class="num">Stroomverbruik kWh</th><th class="num">Graaddagen</th><th class="num">Gas / 1.000 GD</th><th class="num">Stroom / 1.000 GD</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -1018,7 +1018,7 @@
     <details class="cost-details ins-tbl"><summary>Tabel met cijfers per maand</summary>
     <div class="table-scroll">
       <table class="mini-table" id="hpTable">
-        <thead><tr><th>Maand</th><th class="num">WP stroom kWh</th><th class="num">WP warmte kWh</th><th class="num">COP</th><th class="num">Ketel gas m³</th><th class="num">Ketel warmte kWh</th><th class="num">Aandeel WP</th><th class="num">WP van afname</th></tr></thead>
+        <thead><tr><th>Maand</th><th class="num">WP stroom kWh</th><th class="num">WP warmte kWh</th><th class="num">COP</th><th class="num">Ketel gas m³</th><th class="num">Ketel warmte kWh</th><th class="num">Aandeel WP</th><th class="num">WP van verbruik</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -1062,7 +1062,7 @@
         <option value="stook">Stookseizoen (okt – apr)</option>
       </select>
       <select id="cmpMetric" class="cmp-sel">
-        <option value="afn">Stroomafname (kWh)</option>
+        <option value="afn">Stroomverbruik (kWh)</option>
         <option value="ret">Teruglevering (kWh)</option>
         <option value="net">Netto stroom (kWh)</option>
         <option value="gas">Gas (m³)</option>
@@ -1574,7 +1574,7 @@
     const text = cssVar("--muted"), grid = cssVar("--border"), tempColor = cssVar("--temp");
     const datasets = [];
     if (isElec) {
-      datasets.push({ type: "bar", label: "Afname (kWh)", data: b.map(x => +x.afn.toFixed(3)), backgroundColor: cssVar("--elec"), borderRadius: 3, stack: "e", yAxisID: "y", order: 2 });
+      datasets.push({ type: "bar", label: "Verbruik (kWh)", data: b.map(x => +x.afn.toFixed(3)), backgroundColor: cssVar("--elec"), borderRadius: 3, stack: "e", yAxisID: "y", order: 2 });
       datasets.push({ type: "bar", label: "Teruglevering (kWh)", data: b.map(x => -(+x.ret.toFixed(3))), backgroundColor: cssVar("--return"), borderRadius: 3, stack: "e", yAxisID: "y", order: 2 });
     } else {
       // laag verbruik (alle staven < 1 m³): in liter tonen (1 m³ = 1.000 liter)
@@ -1631,7 +1631,7 @@
     const est = r.est ? ' <span class="est-flag">≈</span>' : "";
     document.getElementById("elecEuro").innerHTML = euro(r.elec) + est;
     const slT = state.showSluimer ? sluimerIn(s, e) : null;
-    document.getElementById("elecSub").innerHTML = "Afname: " + nf1.format(r.afn) + " kWh<br>Terug: " + nf1.format(r.ret) + " kWh" +
+    document.getElementById("elecSub").innerHTML = "Verbruik: " + nf1.format(r.afn) + " kWh<br>Terug: " + nf1.format(r.ret) + " kWh" +
       (slT ? "<br>💤 Sluimer: " + nf0.format(slT.w) + " W (" + nf1.format(slT.w * 24 / 1000) + " kWh/dag)" : "");
     document.getElementById("gasEuro").innerHTML = euro(r.gas) + est;
     document.getElementById("gasSub").innerHTML = "Verbruik: " + nf1.format(r.gasM3) + " m³<br>Gem. temp: " + (r.temp !== null ? nf1.format(r.temp) : "-") + " °C";
@@ -2732,7 +2732,7 @@
       const elecRate = t.tariffType === "single" ? t.elecPeak : (t.elecPeak + t.elecOffPeak) / 2;
       const euroEffect = -dGas * t.gasRate - dElec * elecRate;
       card("Gas per stookseizoen", (dGas <= 0 ? "−" : "+") + nf0.format(Math.abs(dGas)) + " m³", nf0.format(gB / 1000 * gdAvg) + " → " + nf0.format(gA / 1000 * gdAvg) + " m³ (" + nf0.format((gA / gB - 1) * 100) + "%)");
-      card("Stroom per stookseizoen", (dElec >= 0 ? "+" : "−") + nf0.format(Math.abs(dElec)) + " kWh", nf0.format(eB / 1000 * gdAvg) + " → " + nf0.format(eA / 1000 * gdAvg) + " kWh afname");
+      card("Stroom per stookseizoen", (dElec >= 0 ? "+" : "−") + nf0.format(Math.abs(dElec)) + " kWh", nf0.format(eB / 1000 * gdAvg) + " → " + nf0.format(eA / 1000 * gdAvg) + " kWh verbruik");
       card(euroEffect >= 0 ? "Besparing per seizoen" : "Meerkosten per seizoen", euro0(Math.abs(euroEffect)), "tegen huidige tarieven (gas " + euro(t.gasRate) + "/m³, stroom " + euro(elecRate) + "/kWh)");
       card("Vergeleken", before.length + " vs " + after.length + " seizoenen", "bij een gemiddelde winter van " + nf0.format(gdAvg) + " graaddagen");
     }
@@ -2746,7 +2746,7 @@
         type: "bar",
         data: { labels: cs.map(s => s.label), datasets: [
           { label: "Gas m³ / 1.000 GD", data: cs.map(s => +s.gasPer.toFixed(0)), backgroundColor: cssVar("--gas"), borderRadius: 3, yAxisID: "y" },
-          { label: "Stroomafname kWh / 1.000 GD", data: cs.map(s => +s.elecPer.toFixed(0)), backgroundColor: cssVar("--elec"), borderRadius: 3, yAxisID: "y1" }
+          { label: "Stroomverbruik kWh / 1.000 GD", data: cs.map(s => +s.elecPer.toFixed(0)), backgroundColor: cssVar("--elec"), borderRadius: 3, yAxisID: "y1" }
         ] },
         options: { responsive: true, maintainAspectRatio: false, animation: { duration: 200 },
           plugins: { legend: { labels: { color: text, boxWidth: 12, font: { size: 11 } } } },
@@ -2764,7 +2764,7 @@
     const full = Object.keys(T).filter(m => T[m].complete);
     const solarStart = full.find(m => T[m].ret > 5) || "9999";
     const regimeOf = m => !wpStart ? "" : (m >= wpStart ? "na" : "voor");
-    const what = { afn: ["Stroomafname", "kWh"], ret: ["Teruglevering", "kWh"], gas: ["Gas", "m³"] };
+    const what = { afn: ["Stroomverbruik", "kWh"], ret: ["Teruglevering", "kWh"], gas: ["Gas", "m³"] };
     const rows = [];
     Object.keys(what).forEach(key => {
       full.forEach(m => {
@@ -2839,7 +2839,7 @@
       const a = agg(seasons[y]), heat = a.wpUit + a.ketelUit;
       card("Aandeel warmtepomp — " + lbl, pct(a.wpUit / heat), fmt0(a.wpUit) + " van " + fmt0(heat) + " kWh warmte");
       card("COP warmtepomp — " + lbl, cop(a.wpUit / a.wpIn), fmt0(a.wpIn) + " kWh stroom → " + fmt0(a.wpUit) + " kWh warmte");
-      card("Stroom warmtepomp — " + lbl, fmt0(a.wpIn) + " kWh", a.afn ? pct(a.wpIn / a.afn) + " van je stroomafname (" + fmt0(a.afn) + " kWh)" : "");
+      card("Stroom warmtepomp — " + lbl, fmt0(a.wpIn) + " kWh", a.afn ? pct(a.wpIn / a.afn) + " van je stroomverbruik (" + fmt0(a.afn) + " kWh)" : "");
       card("Gas cv-ketel — " + lbl, "≈ " + fmt0(a.ketelIn / GAS_KWH_PER_M3) + " m³", a.gas ? "meter: " + fmt0(a.gas) + " m³ gas in die maanden" : "");
     });
     // grafiek: laatste 24 maanden
@@ -3160,7 +3160,7 @@
     stook: { lbl: "Stookseizoen", months: [[10, 0], [11, 0], [12, 0], [1, 1], [2, 1], [3, 1], [4, 1]], split: true }
   };
   const METRICS = {
-    afn: { lbl: "Stroomafname", unit: "kWh", fmt: v => nf0.format(v), color: "--elec" },
+    afn: { lbl: "Stroomverbruik", unit: "kWh", fmt: v => nf0.format(v), color: "--elec" },
     ret: { lbl: "Teruglevering", unit: "kWh", fmt: v => nf0.format(v), color: "--return" },
     net: { lbl: "Netto stroom", unit: "kWh", fmt: v => nf0.format(v), color: "--elec" },
     gas: { lbl: "Gas", unit: "m³", fmt: v => nf0.format(v), color: "--gas" },
