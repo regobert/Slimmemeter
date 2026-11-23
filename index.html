@@ -3549,6 +3549,8 @@
   document.getElementById("exampleNoteBtn").onclick = () => openModalTab("tabContract");
 
   /* ================= Start ================= */
+  // opruimen: de vraagfunctie (eigen API-sleutel) is verwijderd; een eventueel opgeslagen sleutel weghalen
+  try { localStorage.removeItem("energie_claude_key_v1"); localStorage.removeItem("energie_claude_notes_v1"); } catch (e) {}
   if (!ALL_DATES.length && histMonths().length) { state.mode = "year"; state.cursorDate = dataBounds()[1]; }
   renderAll();
   if (!ALL_DATES.length && !histMonths().length) document.getElementById("periodLabel").textContent = BRON_EIGEN ? "Nog geen verbruik toegevoegd" : "Geen data gevonden (alle_data.js)";

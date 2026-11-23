@@ -33,6 +33,8 @@
 
 ## Belangrijke afspraken
 
+- **Eerst vragen bij extra kosten**: bouw niets dat de gebruiker (doorlopend) geld kost (betaalde API's zoals de Anthropic API,
+  abonnementen, hosting) zonder dat vooraf voor te leggen. Een "Vraag het Claude"-knop met eigen API-sleutel is daarom weer verwijderd.
 - **Persoonlijke gegevens nooit in de repository**: contracten, tarieven, termijnen en Excel-historie
   staan alleen in `localStorage` van de browser (`energie_contracts_v1`, `energie_termijnen_v1`,
   `energie_hist_v1`, `energie_histtemp_v1`, `energie_gd_v1`, `energie_wp_v1`, `energie_theme_v2`,
