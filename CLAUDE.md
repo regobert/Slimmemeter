@@ -70,16 +70,6 @@
   en verzonnen maandhistorie vanaf 2022 tot de eerste meterdag, afgeleid van de echte Remeha-data; zet WP-start 2023-11.
   Blauwe demobalk met "Demo stoppen"; het eerste eigen contract ruimt de demo ook op (`commit()`).
 
-## Vraag het Claude (💬 Vraag)
-
-- `#askModal`: analytische vragen via de Anthropic API, rechtstreeks vanuit de browser met de eigen API-sleutel van de gebruiker
-  (`energie_claude_key_v1`, alleen localStorage, niet in de back-up). SDK `@anthropic-ai/sdk@1.7.0` lazy via jsdelivr `+esm`,
-  `dangerouslyAllowBrowser: true`. Model `claude-opus-5-5`, effort high, adaptive thinking, server-side fallbacks `"default"`
-  (beta `server-side-fallback-2026-07-01`), tool `code_execution_20260521`.
-- Per gesprek worden dag.csv, uur.csv, maand.csv en contracten.json via de Files API geüpload (verlopen na 1 dag) en als
-  `container_upload` meegegeven; container-id wordt hergebruikt, `pause_turn` loopt door. Achtergrondnotities: `energie_claude_notes_v1`.
-- Testen: SDK lokaal bundelen met esbuild en de jsdelivr-URL + api.anthropic.com (files, SSE) mocken in Playwright.
-
 ## Werkwijze
 
 - Test wijzigingen met Playwright (Chromium is voorgeïnstalleerd). CDN's zijn in de sandbox
