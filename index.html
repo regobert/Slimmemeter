@@ -512,7 +512,7 @@
       .topbar { margin-bottom: 8px; gap: 6px; }
       .brand h1 { font-size: 1.05rem; }
       .app-version { display: none; }
-      .top-actions { width: 100%; display: grid; grid-template-columns: 1fr 1fr 1fr auto auto; gap: 6px; }
+      .top-actions { width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
       .top-actions .icon-btn { justify-content: center; padding: 7px 6px; font-size: 0.8rem; white-space: nowrap; }
       .lbl-long { display: none; }
       .lbl-short, .mob-only { display: inline; }
@@ -580,6 +580,24 @@
     .wiz-more { margin-top: 16px; font-size: 0.85rem; }
     .wiz-more summary { cursor: pointer; color: var(--accent); font-weight: 600; }
     .wiz-more ul { margin: 8px 0 0; padding-left: 18px; line-height: 2; }
+    .ask-modal { display: flex; flex-direction: column; }
+    .ask-log { display: flex; flex-direction: column; gap: 12px; margin: 8px 0; }
+    .ask-q { align-self: flex-end; max-width: 85%; background: var(--accent); color: #fff; padding: 10px 14px; border-radius: 14px 14px 4px 14px; font-size: 0.95rem; white-space: pre-wrap; }
+    .ask-a { align-self: stretch; background: var(--bg); border: 1px solid var(--border); padding: 12px 16px; border-radius: 14px 14px 14px 4px; font-size: 0.95rem; line-height: 1.55; overflow-x: auto; }
+    .ask-a p { margin: 0 0 8px; } .ask-a p:last-child { margin-bottom: 0; }
+    .ask-a ul, .ask-a ol { margin: 4px 0 8px; padding-left: 20px; }
+    .ask-a h3, .ask-a h4 { margin: 10px 0 6px; font-size: 1rem; }
+    .ask-a table { border-collapse: collapse; margin: 6px 0 10px; font-size: 0.88rem; }
+    .ask-a td, .ask-a th { border-bottom: 1px solid var(--border); padding: 4px 10px 4px 0; text-align: left; }
+    .ask-a code { background: var(--card); padding: 1px 4px; border-radius: 4px; }
+    .ask-meta { font-size: 0.74rem; color: var(--muted); margin-top: 8px; }
+    .ask-examples { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 10px; }
+    .ask-examples button { text-align: left; }
+    .ask-input { display: flex; gap: 8px; align-items: flex-end; }
+    .ask-input textarea { flex: 1; font: inherit; font-size: 1rem; padding: 10px 12px; border-radius: 12px; border: 2px solid var(--accent); background: var(--bg); color: var(--text); resize: vertical; min-height: 48px; }
+    .ask-input .btn-primary { padding: 12px 18px; border-radius: 12px; font-size: 1rem; }
+    .ask-status { min-height: 1.2em; font-size: 0.85rem; color: var(--muted); margin-top: 6px; }
+    #askNotes { font: inherit; padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
   </style>
 </head>
 <body>
@@ -593,6 +611,7 @@
       <button class="icon-btn" id="openCompareBtn">📅 <span class="lbl-long">Vergelijken</span><span class="lbl-short">Vergelijk</span></button>
       <button class="icon-btn" id="openInsightsBtn">📊 <span class="lbl-long">Inzichten</span><span class="lbl-short">Inzicht</span></button>
       <button class="icon-btn" id="openContractBtn">📄 <span class="lbl-long">Contracten & gegevens</span><span class="lbl-short">Gegevens</span></button>
+      <button class="icon-btn" id="openAskBtn">💬 <span class="lbl-long">Vraag het Claude</span><span class="lbl-short">Vraag</span></button>
       <button class="icon-btn" id="openHelpBtn" title="Hoe begin ik?">❓ <span class="lbl-long">Hoe begin ik?</span></button>
       <button class="icon-btn" id="themeToggleBtn">🌙 Donker</button>
     </div>
@@ -1036,6 +1055,46 @@
     </details>
     <div class="modal-actions">
       <button class="icon-btn" id="closeInsightsBtnBottom">✕ Sluiten</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="askModal">
+  <div class="modal wide ask-modal">
+    <div class="modal-head">
+      <h2>💬 Vraag het Claude</h2>
+      <div class="head-actions">
+        <button class="icon-btn" id="askNewBtn" type="button">Nieuw gesprek</button>
+        <button class="icon-btn" id="closeAskBtn" type="button">✕ Sluiten</button>
+      </div>
+    </div>
+    <div id="askSetup" style="display:none;">
+      <div class="wiz-text">Stel vragen over je eigen verbruik, zoals <em>"Moet ik 's nachts de thermostaat lager zetten?"</em>. Claude rekent het voor je uit met je eigen gegevens.</div>
+      <div class="wiz-text" style="margin-top:10px;">Daarvoor heb je eenmalig een eigen sleutel van Anthropic nodig (los van een Claude-abonnement):</div>
+      <ol class="wiz-list">
+        <li>Ga naar <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a> en maak een account.</li>
+        <li>Zet er tegoed op en stel bij voorkeur een maximum per maand in.</li>
+        <li>Maak onder <em>API keys</em> een sleutel aan en plak die hieronder.</li>
+      </ol>
+      <div class="wiz-input" style="font-size:1rem;"><input type="password" id="askKeyInput" placeholder="sk-ant-…" autocomplete="off" style="width:100%; max-width:420px; font-size:1rem;" /></div>
+      <div class="wiz-btns"><button class="btn-primary" id="askKeySave" type="button">Opslaan en beginnen</button></div>
+      <div class="hint" style="margin-top:10px;">🔒 De sleutel blijft alleen in deze browser; hij gaat niet mee in de back-up en komt nooit op GitHub. Onder elk antwoord zie je ongeveer wat de vraag kostte.</div>
+    </div>
+    <div id="askChat" style="display:none;">
+      <div class="ask-log" id="askLog"></div>
+      <div class="ask-examples" id="askExamples"></div>
+      <div class="ask-input">
+        <textarea id="askInput" rows="2" placeholder="Stel je vraag over je energie…"></textarea>
+        <button class="btn-primary" id="askSendBtn" type="button">Vraag</button>
+      </div>
+      <div class="ask-status" id="askStatus"></div>
+      <details class="cost-details" style="margin-top:8px;">
+        <summary>Achtergrond, privacy en sleutel</summary>
+        <div class="hint" style="margin:6px 0 4px;">Achtergrond die Claude bij elke nieuw gesprek meekrijgt, bijv. je thermostaatprogramma of wanneer je op vakantie was:</div>
+        <textarea id="askNotes" rows="3" style="width:100%; box-sizing:border-box;" placeholder="Bijv.: thermostaat 19,5 °C van 07:30 tot 21:00, 's nachts 18,5 °C."></textarea>
+        <div class="hint" style="margin:8px 0;">Je vraag en je energiegegevens (verbruik per dag en uur, warmtepomp, kosten, contracten, tarieven en termijnbedragen) gaan naar Anthropic om het antwoord te berekenen. De bestanden worden na een dag automatisch verwijderd.</div>
+        <button class="icon-btn" id="askKeyClear" type="button">Sleutel uit deze browser verwijderen</button>
+      </details>
     </div>
   </div>
 </div>
@@ -3547,6 +3606,259 @@
     location.href = location.pathname; // zonder ?demo, anders start de demo opnieuw
   };
   document.getElementById("exampleNoteBtn").onclick = () => openModalTab("tabContract");
+
+
+  /* ================= Vraag het Claude ================= */
+  // Analytische vragen over de eigen gegevens. Werkt met een eigen Anthropic API-sleutel, die alleen in deze browser staat.
+  // De gegevens gaan als CSV-bestanden naar een rekenomgeving (code execution), zodat Claude rekent in plaats van schat.
+  const AI_KEY = "energie_claude_key_v1", AI_NOTES = "energie_claude_notes_v1";
+  const AI_MODEL = "claude-opus-5-5";
+  const AI_SDK_URL = "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.7.0/+esm";
+  const askModal = document.getElementById("askModal");
+  let aiMod = null, aiClient = null, aiConv = null, aiBusy = false;
+
+  async function aiGetClient() {
+    if (!aiMod) aiMod = await import(AI_SDK_URL);
+    if (!aiClient) {
+      const Anthropic = aiMod.default || aiMod.Anthropic;
+      // eigen sleutel van de gebruiker, alleen in deze browser
+      aiClient = new Anthropic({ apiKey: LS.get(AI_KEY, ""), dangerouslyAllowBrowser: true });
+    }
+    return aiClient;
+  }
+
+  const cv = (v, d) => v === null || v === undefined || !isFinite(v) ? "" : (+v).toFixed(d);
+  function aiFiles() {
+    const out = [];
+    // per dag: meter, temperatuur, warmtepomp, kosten
+    const days = [...new Set([...ALL_DATES, ...Object.keys(REMEHA)])].sort();
+    const dl = ["datum,buitentemp_gem_C,graaddagen,stroom_verbruik_normaal_kWh,stroom_verbruik_dal_kWh,stroom_terug_normaal_kWh,stroom_terug_dal_kWh,gas_m3,sluimer_W," +
+      "remeha_gesplitst,wp_stroom_kWh,wp_warmte_kWh,ketel_gas_kWh,remeha_totaal_in_kWh,remeha_totaal_warmte_kWh,kosten_stroom_eur,kosten_gas_eur,kosten_vast_eur,kosten_geschat"];
+    days.forEach(k => {
+      const d = DAY[k], r = REMEHA[k], p = d ? dayPart(k) : null;
+      const split = r && (r.wp_in || r.wp_uit || r.ketel_in || r.ketel_uit);
+      dl.push([k, d ? cv(d.temp, 1) : "", d && d.temp !== null ? cv(Math.max(0, 18 - d.temp), 1) : "",
+        d ? cv(d.afnHigh, 3) : "", d ? cv(d.afnLow, 3) : "", d ? cv(d.retHigh, 3) : "", d ? cv(d.retLow, 3) : "", d ? cv(d.gas, 3) : "", d ? cv(d.sluimerW, 0) : "",
+        r ? (split ? 1 : 0) : "", split ? cv(r.wp_in || 0, 1) : "", split ? cv(r.wp_uit || 0, 1) : "", split ? cv((r.ketel_in || 0) + (r.ketel_ww_in || 0), 1) : "",
+        r ? cv(r.in || 0, 1) : "", r ? cv(r.uit || 0, 1) : "",
+        p ? cv(p.elec, 2) : "", p ? cv(p.gas, 2) : "", p ? cv(p.fixed, 2) : "", p ? (p.est ? 1 : 0) : ""].join(","));
+    });
+    out.push({ name: "dag.csv", text: dl.join("\n") });
+    // per uur (alleen dagen met slimme-meterdata)
+    const ul = ["datum,uur_start,stroom_verbruik_kWh,stroom_terug_kWh,gas_m3,buitentemp_C"];
+    ALL_DATES.forEach(k => { const d = DAY[k]; for (let h = 0; h < 24; h++) ul.push([k, h, cv(d.hAfn[h], 3), cv(d.hRet[h], 3), cv(d.hGas[h], 3), cv(d.hTemp[h], 1)].join(",")); });
+    out.push({ name: "uur.csv", text: ul.join("\n") });
+    // per maand, met het kostenmodel van het dashboard
+    const ml = ["maand,bron,stroom_verbruik_kWh,stroom_terug_kWh,gas_m3,buitentemp_gem_C,graaddagen,kosten_stroom_eur,kosten_gas_eur,kosten_vast_eur,kosten_totaal_eur,kosten_geschat,termijnbedrag_eur,contract"];
+    allMonths().forEach(m => {
+      const src = DAILY_MONTHS.has(m) ? "slimme meter" : (hist[m] ? "excel" : "");
+      if (!src) return;
+      const c = sumParts(partsIn(m + "-01", monthEnd(m), true));
+      const gd = degreeDays[m] !== undefined ? degreeDays[m] : (DAILY_MONTHS.has(m) ? ALL_DATES.filter(k => k.startsWith(m) && DAY[k].temp !== null).reduce((a, k) => a + Math.max(0, 18 - DAY[k].temp), 0) : null);
+      ml.push([m, src, cv(c.afn, 1), cv(c.ret, 1), cv(c.gasM3, 2), cv(c.temp !== null ? c.temp : histTemp[m], 1), cv(gd, 0),
+        cv(c.elec, 2), cv(c.gas, 2), cv(c.fixed, 2), cv(c.elec + c.gas + c.fixed, 2), c.est ? 1 : 0, cv(termijnFor(m), 2),
+        '"' + String(contractFor(m + "-15").naam || "").replace(/"/g, "'") + '"'].join(","));
+    });
+    out.push({ name: "maand.csv", text: ml.join("\n") });
+    // contracten en termijnen
+    const own = contracts.filter(c => !c.placeholder);
+    out.push({ name: "contracten.json", text: JSON.stringify({
+      voorbeeldtarieven: !hasOwnContract(),
+      uitleg: "Tarieven in euro incl. btw: elecPeak/elecOffPeak = stroom normaal/dal per kWh, feedInRate = terugleververgoeding per kWh, feedInCost = terugleverkosten per kWh, gasRate = gas per m3. fixedSupplyDay/gridDay/taxCreditDay = vaste kosten per dag (levering, netbeheer, vermindering energiebelasting). saldering: auto = per contractjaar t/m 2026, daarna geen; maandTarieven overschrijven de vaste tarieven (behalve bij soort vast). termijnen = maandbedrag vanaf die maand.",
+      contracten: (own.length ? own : contracts).map(c => ({ naam: c.naam, leverancier: c.leverancier, soort: c.soort, start: c.start, eind: c.end || null, saldering: c.saldering,
+        tariefsoort: c.tariffType, elecPeak: c.elecPeak, elecOffPeak: c.elecOffPeak, feedInRate: c.feedInRate, feedInCost: c.feedInCost, gasRate: c.gasRate,
+        fixedSupplyDay: c.fixedSupplyDay, gridDay: c.gridDay, taxCreditDay: c.taxCreditDay, termijn: c.termijn, maandTarieven: c.soort === "vast" ? {} : (c.maandTarieven || {}), demo: !!c.demo })),
+      termijnen, warmtepomp_sinds: wpStart || null
+    }, null, 1) });
+    return out;
+  }
+
+  function aiSystem() {
+    return [
+      "Je bent de energie-analist in het dashboard 'Mijn Energie' van een Nederlands huishouden. Je beantwoordt vragen van de bewoner over hun eigen energieverbruik en -kosten.",
+      BRON_EIGEN
+        ? "De gebruiker heeft eigen verbruiksbestanden geüpload; er zijn alleen maandtotalen (maand.csv). dag.csv en uur.csv kunnen leeg zijn."
+        : "Het huis heeft zonnepanelen en een hybride warmtepomp (Remeha Elga Ace): de warmtepomp verwarmt op stroom, de cv-ketel springt bij op gas en maakt ook al het warme water.",
+      "",
+      "Gegevens (CSV/JSON, bijgevoegd in je rekenomgeving; zoek ze zo nodig op met: find / -name dag.csv 2>/dev/null):",
+      "- dag.csv: per dag buitentemperatuur, graaddagen (basis 18 °C), stroomverbruik en teruglevering (normaal/dal), gas, sluimerverbruik in watt, Remeha-warmtepompdata en de kosten volgens het dashboard.",
+      "- uur.csv: per uur (uur_start = begin van het uur, lokale tijd) stroomverbruik, teruglevering, gas en buitentemperatuur; alleen dagen met slimme-meterdata.",
+      "- maand.csv: per maand totalen, kosten volgens het dashboard, termijnbedrag en contract; bron 'excel' = oudere maandtotalen uit Excel.",
+      "- contracten.json: contracten met tarieven, saldering, maandtarieven en termijnbedragen.",
+      "",
+      "Betekenis en meetdetails:",
+      "- Stroomverbruik = wat de meter van het net afneemt. Stroom die de zonnepanelen direct in huis gebruiken, is niet gemeten.",
+      "- Remeha: wp_stroom_kWh = stroom van de warmtepomp, wp_warmte_kWh = geleverde warmte, ketel_gas_kWh = gasverbruik van de cv-ketel in kWh (1 m³ gas ≈ 9,77 kWh). Waarden zijn dagtotalen in hele kWh. remeha_gesplitst = 0 betekent dat Remeha die dag alleen totalen gaf. COP = wp_warmte / wp_stroom.",
+      "- Ketelwarmte is niet gemeten; reken zo nodig met ongeveer 90% rendement en zeg dat het een aanname is.",
+      "- Gas per uur is gemeten in stappen van 0,01 m³. Gas tussen ongeveer 6 en 9 uur op dagen zonder ketel-verwarming is vaak warm water (douchen).",
+      "- kosten_geschat = 1: geen eigen contract voor die periode of maandtotalen; dan zijn de kosten een schatting.",
+      "- Er is geen binnentemperatuur, thermostaatinstelling of uurdata van de warmtepomp beschikbaar.",
+      "",
+      "Werkwijze:",
+      "- Reken altijd met code op de bestanden. Noem alleen getallen die je zelf hebt berekend of die in de gegevens of de achtergrond van de gebruiker staan; verzin niets.",
+      "- Kan een vraag niet uit de gegevens worden beantwoord, zeg dat eerlijk en zeg wat er nodig zou zijn. Een schatting mag alleen als je die zo noemt en de aannames geeft.",
+      "- Let op weinig gegevens, weersverschillen en toeval; vergelijk zo nodig per graaddag.",
+      "- Staat voorbeeldtarieven op true in contracten.json, meld dan dat de bedragen met voorbeeldprijzen zijn berekend.",
+      "",
+      "Antwoord:",
+      "- In eenvoudig Nederlands voor iemand zonder technische kennis. Begin met het antwoord in één of twee zinnen, daarna kort de onderbouwing met de belangrijkste getallen, eventueel een klein tabelletje.",
+      "- Laat geen code zien en noem geen bestandsnamen. Getallen in Nederlandse notatie (komma als decimaalteken), bedragen als € 1,23.",
+      "- Kort en zonder vakjargon; leg een begrip als COP of graaddagen in een paar woorden uit als je het gebruikt."
+    ].join("\n");
+  }
+
+  // kleine, veilige markdown-weergave voor de antwoorden
+  function aiMd(text) {
+    const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const inline = t => esc(t).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/`([^`]+)`/g, "<code>$1</code>");
+    const lines = String(text).split("\n"), html = [];
+    let i = 0;
+    while (i < lines.length) {
+      const l = lines[i];
+      if (/^\s*\|/.test(l)) {
+        const rows = [];
+        while (i < lines.length && /^\s*\|/.test(lines[i])) { rows.push(lines[i]); i++; }
+        const cells = r => r.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+        const body = rows.filter(r => !/^\s*\|[\s:|-]+\|\s*$/.test(r)); // scheidingsregel |---| overslaan
+        html.push("<table>" + body.map((r, j) => "<tr>" + cells(r).map(c => (j === 0 ? "<th>" : "<td>") + inline(c) + (j === 0 ? "</th>" : "</td>")).join("") + "</tr>").join("") + "</table>");
+        continue;
+      }
+      if (/^\s*[-*•] /.test(l) || /^\s*\d+[.)] /.test(l)) {
+        const ordered = /^\s*\d+[.)] /.test(l), items = [];
+        while (i < lines.length && (ordered ? /^\s*\d+[.)] /.test(lines[i]) : /^\s*[-*•] /.test(lines[i]))) { items.push(lines[i].replace(/^\s*([-*•]|\d+[.)]) /, "")); i++; }
+        html.push((ordered ? "<ol>" : "<ul>") + items.map(x => "<li>" + inline(x) + "</li>").join("") + (ordered ? "</ol>" : "</ul>"));
+        continue;
+      }
+      const h = /^(#{1,4})\s+(.*)$/.exec(l);
+      if (h) { html.push("<h4>" + inline(h[2]) + "</h4>"); i++; continue; }
+      if (!l.trim()) { i++; continue; }
+      const para = [];
+      while (i < lines.length && lines[i].trim() && !/^\s*(\||[-*•] |\d+[.)] |#)/.test(lines[i])) { para.push(lines[i]); i++; }
+      if (para.length) html.push("<p>" + para.map(inline).join("<br>") + "</p>");
+      else { html.push("<p>" + inline(l) + "</p>"); i++; }
+    }
+    return html.join("");
+  }
+
+  const askLog = document.getElementById("askLog"), askInput = document.getElementById("askInput"), askStatus = document.getElementById("askStatus");
+  const AI_EXAMPLES = [
+    "Is het voordeliger om 's nachts de thermostaat lager te zetten? Hoeveel scheelt het?",
+    "Waarom was mijn gasverbruik vorige week anders dan de week ervoor?",
+    "Hoeveel heeft de warmtepomp dit stookseizoen bespaard?",
+    "Is mijn termijnbedrag hoog genoeg voor dit contractjaar?",
+    "Hoe hoog is mijn sluimerverbruik en is dat normaal?"
+  ];
+  function aiRender() {
+    const hasKey = !!LS.get(AI_KEY, "");
+    document.getElementById("askSetup").style.display = hasKey ? "none" : "";
+    document.getElementById("askChat").style.display = hasKey ? "" : "none";
+    const ex = document.getElementById("askExamples"); ex.innerHTML = "";
+    if (!askLog.children.length) AI_EXAMPLES.forEach(q => {
+      const b = document.createElement("button"); b.type = "button"; b.className = "icon-btn"; b.textContent = q;
+      b.onclick = () => { askInput.value = q; aiSend(); }; ex.appendChild(b);
+    });
+    document.getElementById("askNotes").value = LS.get(AI_NOTES, "");
+  }
+  function aiBubble(cls, html) { const d = document.createElement("div"); d.className = cls; d.innerHTML = html; askLog.appendChild(d); d.scrollIntoView({ block: "end", behavior: "smooth" }); return d; }
+  const aiEsc = t => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+  async function aiSend() {
+    const q = askInput.value.trim();
+    if (!q || aiBusy) return;
+    aiBusy = true; askInput.value = ""; document.getElementById("askSendBtn").disabled = true;
+    document.getElementById("askExamples").innerHTML = "";
+    aiBubble("ask-q", aiEsc(q));
+    const bubble = aiBubble("ask-a", "<p style='color:var(--muted)'>…</p>");
+    let answer = "", lastDraw = 0;
+    const draw = (force) => { const now = Date.now(); if (!force && now - lastDraw < 120) return; lastDraw = now; bubble.innerHTML = aiMd(answer) || "<p style='color:var(--muted)'>…</p>"; };
+    const tot = { in: 0, out: 0, cw: 0, cr: 0 };
+    try {
+      askStatus.textContent = "Verbinden…";
+      const client = await aiGetClient();
+      if (!aiConv) {
+        askStatus.textContent = "Je gegevens klaarzetten…";
+        const ids = [];
+        for (const f of aiFiles()) {
+          const up = await client.files.upload({ file: new File([f.text], f.name, { type: f.name.endsWith(".json") ? "application/json" : "text/csv" }), expires_in_seconds: 86400 });
+          ids.push(up.id);
+        }
+        const notes = String(LS.get(AI_NOTES, "") || "").trim();
+        const intro = "Vandaag is het " + fmtDate(todayKey()) + ". De gegevens lopen tot en met " + fmtDate(dataBounds()[1]) + "." +
+          (notes ? "\nAchtergrond van de bewoner: " + notes : "") + "\n\nVraag: ";
+        aiConv = { messages: [{ role: "user", content: [...ids.map(id => ({ type: "container_upload", file_id: id })), { type: "text", text: intro + q }] }], container: null };
+      } else aiConv.messages.push({ role: "user", content: q });
+      for (let round = 0; round < 10; round++) {
+        askStatus.textContent = "💭 Claude denkt na…";
+        const stream = client.beta.messages.stream({
+          model: AI_MODEL, max_tokens: 64000,
+          betas: ["server-side-fallback-2026-07-01"], fallbacks: "default",
+          thinking: { type: "adaptive", display: "summarized" },
+          output_config: { effort: "high" },
+          cache_control: { type: "ephemeral" },
+          system: aiSystem(),
+          tools: [{ type: "code_execution_20260521", name: "code_execution" }],
+          ...(aiConv.container ? { container: aiConv.container } : {}),
+          messages: aiConv.messages
+        });
+        for await (const ev of stream) {
+          if (ev.type === "content_block_start") {
+            const t = ev.content_block.type;
+            if (t === "server_tool_use") askStatus.textContent = "🧮 Claude rekent met je gegevens…";
+            else if (t === "thinking") askStatus.textContent = "💭 Claude denkt na…";
+            else if (t === "text") { askStatus.textContent = "✍️ Claude schrijft…"; if (answer && !answer.endsWith("\n\n")) answer += "\n\n"; }
+          } else if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") { answer += ev.delta.text; draw(false); }
+        }
+        const msg = await stream.finalMessage();
+        aiConv.messages.push({ role: "assistant", content: msg.content });
+        if (msg.container && msg.container.id) aiConv.container = msg.container.id;
+        const u = msg.usage || {};
+        tot.in += u.input_tokens || 0; tot.out += u.output_tokens || 0; tot.cw += u.cache_creation_input_tokens || 0; tot.cr += u.cache_read_input_tokens || 0;
+        if (msg.stop_reason === "pause_turn") continue; // lange berekening: verder laten gaan
+        if (msg.stop_reason === "refusal") answer += (answer ? "\n\n" : "") + "Claude kan deze vraag niet beantwoorden.";
+        if (msg.stop_reason === "max_tokens") answer += "\n\n(Het antwoord is afgebroken omdat het te lang werd.)";
+        break;
+      }
+      draw(true);
+      // geschatte API-kosten (Claude Opus 5.5: $4 / $20 per miljoen tokens; cache schrijven 1,25×, lezen ca. 0,1×)
+      const usd = (tot.in * 4 + tot.cw * 5 + tot.cr * 0.4 + tot.out * 20) / 1e6;
+      const meta = document.createElement("div"); meta.className = "ask-meta";
+      meta.textContent = "Kosten van deze vraag: ≈ $ " + nf2.format(usd) + " (exclusief eventuele rekentijd)";
+      bubble.appendChild(meta);
+      askStatus.textContent = "";
+    } catch (err) {
+      const E = aiMod || {};
+      let m = "Er ging iets mis: " + (err && err.message ? err.message : err);
+      if (!aiMod) m = "Kon de verbinding met Claude niet laden. Controleer je internetverbinding en probeer het opnieuw.";
+      else if (E.AuthenticationError && err instanceof E.AuthenticationError) m = "De sleutel wordt niet geaccepteerd. Controleer of je hem goed hebt geplakt (onder 'Achtergrond, privacy en sleutel' kun je hem verwijderen en opnieuw invoeren).";
+      else if (E.PermissionDeniedError && err instanceof E.PermissionDeniedError) m = "Deze sleutel mag dit niet. Controleer je account op platform.claude.com.";
+      else if (E.RateLimitError && err instanceof E.RateLimitError) m = "Het is even te druk, of je maandlimiet is bereikt. Probeer het later opnieuw.";
+      else if (E.APIConnectionError && err instanceof E.APIConnectionError) m = "Geen verbinding met Claude. Controleer je internetverbinding.";
+      else if (E.APIError && err instanceof E.APIError && /credit|balance/i.test(err.message || "")) m = "Je tegoed bij Anthropic is op. Vul het aan op platform.claude.com.";
+      bubble.innerHTML = (answer ? aiMd(answer) : "") + "<p style='color:var(--gas)'>" + aiEsc(m) + "</p>";
+      askStatus.textContent = "";
+      // gesprek opnieuw beginnen bij een fout, zodat de volgende vraag een geldig gesprek heeft
+      aiConv = null;
+    } finally {
+      aiBusy = false; document.getElementById("askSendBtn").disabled = false;
+    }
+  }
+  document.getElementById("askSendBtn").onclick = aiSend;
+  askInput.addEventListener("keydown", ev => { if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); aiSend(); } });
+  document.getElementById("askKeySave").onclick = () => {
+    const k = document.getElementById("askKeyInput").value.trim();
+    if (!/^sk-ant-/.test(k)) { alert("Dit lijkt geen Anthropic API-sleutel (die begint met sk-ant-)."); return; }
+    LS.set(AI_KEY, k); aiClient = null; document.getElementById("askKeyInput").value = ""; aiRender(); askInput.focus();
+  };
+  document.getElementById("askKeyClear").onclick = () => {
+    if (!confirm("Sleutel uit deze browser verwijderen?")) return;
+    try { localStorage.removeItem(AI_KEY); } catch (e) {}
+    aiClient = null; aiConv = null; aiRender();
+  };
+  document.getElementById("askNotes").onchange = ev => { LS.set(AI_NOTES, ev.target.value); aiConv = null; };
+  document.getElementById("askNewBtn").onclick = () => { if (aiBusy) return; aiConv = null; askLog.innerHTML = ""; askStatus.textContent = ""; aiRender(); };
+  document.getElementById("openAskBtn").onclick = () => { aiRender(); askModal.classList.add("open"); if (LS.get(AI_KEY, "")) setTimeout(() => askInput.focus(), 50); };
+  document.getElementById("closeAskBtn").onclick = () => askModal.classList.remove("open");
+  askModal.addEventListener("click", ev => { if (ev.target === askModal) askModal.classList.remove("open"); });
 
   /* ================= Start ================= */
   if (!ALL_DATES.length && histMonths().length) { state.mode = "year"; state.cursorDate = dataBounds()[1]; }
