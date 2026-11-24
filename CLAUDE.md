@@ -15,6 +15,8 @@
   ketel neemt het over onder ca. +1,5 à +2 °C buiten (beste fit 2024/25 +1,5, 2025/26 +2,0; nachturen: <2 °C gas in 56–75% van de uren,
   2–3 °C 6%, >3 °C 0%). Daarnaast ketel bij grote vraag (ochtend-opwarmen) ook bij 2–6 °C. WP levert max ca. 80–97 kWh warmte/dag.
   Open-Meteo-hosts staan in de cloud-omgeving "Slimmemeter".
+- In het dashboard: Inzichten → "Omslagpunt" (`renderSwitch`, `#swBox`): zelfde methode per stookseizoen in de browser;
+  uurtemperaturen Open-Meteo gecachet in `energie_uurtemp_v1`; omslagpunt alleen bij ≥10 dagen < 8 °C en ≥5 dagen < 3 °C.
 
 ## Experiment nachtverlaging (lopend)
 

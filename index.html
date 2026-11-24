@@ -1024,6 +1024,26 @@
     </div>
     </details>
 
+    <div id="swBox">
+    <div class="section-title">Omslagpunt: wanneer neemt de ketel het over?</div>
+    <div class="hint" id="swHint">Onder welke buitentemperatuur de cv-ketel (gas) het verwarmen van de warmtepomp overneemt, per stookseizoen. Berekend uit de Remeha-dagwaarden en de buitentemperatuur per uur in Hengelo (Open-Meteo).</div>
+    <div class="ins-summary" id="swSummary"></div>
+    <div class="ins-chart"><canvas id="swChart"></canvas></div>
+    <details class="cost-details ins-tbl"><summary>Tabel met cijfers per seizoen</summary>
+    <div class="table-scroll">
+      <table class="mini-table" id="swTable">
+        <thead><tr><th>Stookseizoen</th><th class="num">Omslagpunt</th><th class="num">Koude dagen</th><th class="num">&lt; 0 °C</th><th class="num">0–2 °C</th><th class="num">2–4 °C</th><th class="num">4–6 °C</th><th class="num">6–8 °C</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="hint" style="margin-top:4px;">De kolommen per temperatuur geven het deel van de warmte dat de ketel leverde op dagen met dat daggemiddelde.</div>
+    </details>
+    <details class="cost-details" style="margin-top:6px;">
+      <summary>Zo wordt het berekend</summary>
+      <div class="hint" id="swMethod" style="margin:4px 0 0;"></div>
+    </details>
+    </div>
+
     <div class="section-title">Afwijkingen</div>
     <div class="hint">Volledige maanden die sterk afwijken van dezelfde maand in andere jaren (voor en na de warmtepomp apart vergeleken). Kan een meetfout zijn, maar ook vakantie, sneeuw op de panelen of een koude maand.</div>
     <details class="cost-details ins-tbl"><summary>Toon de afwijkende maanden</summary>
@@ -2757,6 +2777,7 @@
     }
 
     renderHeatpump(T);
+    renderSwitch();
     renderSavings();
 
     // ---- Afwijkingen ----
@@ -2874,6 +2895,109 @@
       });
       tb.appendChild(tr);
     });
+  }
+
+
+  /* ---- Omslagpunt warmtepomp → ketel ---- */
+  // Uurtemperaturen Hengelo (Open-Meteo-archief) voor de Remeha-dagen; alleen de coördinaten worden verstuurd.
+  const UT_KEY = "energie_uurtemp_v1";
+  let uurTemp = LS.get(UT_KEY, {});           // {"JJJJ-MM-DD": [24 temperaturen]}
+  let uurTempBusy = false, swChart = null;
+  async function fetchUurTemp() {
+    const need = Object.keys(REMEHA).filter(k => !uurTemp[k] && k < addDays(todayKey(), -2)).sort();
+    if (!need.length || uurTempBusy) return false;
+    uurTempBusy = true;
+    try {
+      const url = "https://archive-api.open-meteo.com/v1/archive?latitude=" + HENGELO.lat + "&longitude=" + HENGELO.lon +
+        "&start_date=" + need[0] + "&end_date=" + need[need.length - 1] + "&hourly=temperature_2m&timezone=Europe%2FAmsterdam";
+      const js = await (await fetch(url)).json();
+      const t = (js.hourly && js.hourly.time) || [], v = (js.hourly && js.hourly.temperature_2m) || [];
+      const acc = {};
+      t.forEach((ts, i) => { const k = ts.slice(0, 10), h = +ts.slice(11, 13); (acc[k] = acc[k] || new Array(24).fill(null))[h] = v[i] === null ? null : Math.round(v[i] * 10) / 10; });
+      Object.entries(acc).forEach(([k, a]) => { if (a.filter(x => x !== null).length >= 20) uurTemp[k] = a; });
+      LS.set(UT_KEY, uurTemp);
+      return true;
+    } catch (e) { console.warn("Uurtemperaturen niet beschikbaar", e); return false; }
+    finally { uurTempBusy = false; }
+  }
+  function renderSwitch() {
+    const box = document.getElementById("swBox");
+    const seasonOf = k => { const y = +k.slice(0, 4), m = +k.slice(5, 7); return m >= 7 ? y : y - 1; };
+    // gesplitste Remeha-dagen met uurtemperaturen
+    const days = Object.keys(REMEHA).sort().filter(k => uurTemp[k]).map(k => {
+      const d = REMEHA[k], hs = uurTemp[k].filter(x => x !== null);
+      const split = d.wp_in || d.wp_uit || d.ketel_in || d.ketel_uit;
+      return split && (d.uit || 0) > 0 ? { k, hs, T: hs.reduce((a, b) => a + b, 0) / hs.length, wp: d.wp_uit || 0, ketel: BOILER_EFF * (d.ketel_in || 0) } : null;
+    }).filter(Boolean);
+    if (days.length < 30) {
+      box.style.display = Object.keys(REMEHA).length ? "" : "none";
+      document.getElementById("swSummary").innerHTML = '<div class="ins-card"><div class="lbl">Omslagpunt</div><div class="val">Bezig…</div><div class="sub">De buitentemperaturen worden opgehaald.</div></div>';
+      if (Object.keys(REMEHA).length) fetchUurTemp().then(ok => { if (ok && insightsModal.classList.contains("open")) renderSwitch(); });
+      return;
+    }
+    box.style.display = "";
+    // balanstemperatuur uit de warmtevraag per dag (lineair: warmte = a + b·T)
+    const xs = days.map(d => d.T), ys = days.map(d => d.wp + d.ketel), n = xs.length;
+    const mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n;
+    const b = xs.reduce((a, x, i) => a + (x - mx) * (ys[i] - my), 0) / xs.reduce((a, x) => a + (x - mx) * (x - mx), 0);
+    const Tb = b < 0 ? mx - my / b : 16;
+    // per stookseizoen: de drempel X waarbij 'ketel in uren kouder dan X' het best past bij het gemeten ketelaandeel
+    const share = d => (d.wp + d.ketel) > 0 ? d.ketel / (d.wp + d.ketel) : 0;
+    const pred = (d, X) => { let tot = 0, k = 0; d.hs.forEach(t => { const q = Math.max(0, Tb - t); tot += q; if (t < X) k += q; }); return tot > 0 ? k / tot : 0; };
+    const seasons = [...new Set(days.map(d => seasonOf(d.k)))].sort();
+    const bins = [[-99, 0], [0, 2], [2, 4], [4, 6], [6, 8]];
+    const res = seasons.map(sy => {
+      const L = days.filter(d => seasonOf(d.k) === sy);
+      const cold = L.filter(d => d.T < 8);
+      let best = null;
+      if (cold.length >= 10 && L.filter(d => d.T < 3).length >= 5) { // alleen als er genoeg dagen rond het omslagpunt zijn
+        for (let x10 = -40; x10 <= 60; x10 += 5) {
+          const X = x10 / 10, e = Math.sqrt(cold.reduce((a, d) => a + (pred(d, X) - share(d)) ** 2, 0) / cold.length);
+          if (!best || e < best.e) best = { X, e };
+        }
+      }
+      const perBin = bins.map(([lo, hi]) => { const B = L.filter(d => d.T >= lo && d.T < hi); const h = B.reduce((a, d) => a + d.wp + d.ketel, 0);
+        return B.length ? { n: B.length, share: h > 0 ? B.reduce((a, d) => a + d.ketel, 0) / h : 0 } : null; });
+      return { sy, lbl: sy + "/" + String(sy + 1).slice(2), cold: cold.length, best, perBin };
+    });
+    // samenvatting
+    const sum = document.getElementById("swSummary"); sum.innerHTML = "";
+    const card = (lbl, val, sub) => { const d = document.createElement("div"); d.className = "ins-card"; d.innerHTML = '<div class="lbl"></div><div class="val"></div><div class="sub"></div>'; d.children[0].textContent = lbl; d.children[1].textContent = val; d.children[2].textContent = sub || ""; sum.appendChild(d); };
+    const fmtT = x => (x > 0 ? "+" : x < 0 ? "−" : "") + nf1.format(Math.abs(x)) + " °C";
+    const withX = res.filter(r => r.best);
+    withX.slice(-3).forEach(r => card("Omslagpunt " + r.lbl, "≈ " + fmtT(r.best.X), r.cold + " koude dagen" + (r.cold < 30 ? " (nog weinig, voorlopig)" : "")));
+    if (withX.length >= 2) {
+      const xsF = withX.filter(r => r.cold >= 30).map(r => r.best.X);
+      if (xsF.length >= 2) card("Vast punt?", Math.max(...xsF) - Math.min(...xsF) <= 1 ? "Vrijwel gelijk" : "Verschilt",
+        "volledige seizoenen: " + xsF.map(fmtT).join(", ") + ". Bij grote vraag ('s ochtends) springt de ketel ook boven dit punt bij.");
+    }
+    // grafiek: deel van de warmte uit de ketel per daggemiddelde temperatuur, per seizoen
+    if (swChart) { swChart.destroy(); swChart = null; }
+    if (window.Chart) {
+      const text = cssVar("--muted"), grid = cssVar("--border"), cols = ["--muted", "--gas", "--elec", "--return", "--temp"];
+      swChart = new Chart(document.getElementById("swChart"), {
+        type: "line",
+        data: { labels: ["< 0 °C", "0–2 °C", "2–4 °C", "4–6 °C", "6–8 °C"], datasets: res.filter(r => r.perBin.some(Boolean)).slice(-4).map((r, i, arr) => ({
+          label: r.lbl, data: r.perBin.map(x => x ? Math.round(x.share * 100) : null), borderColor: cssVar(cols[(cols.length - arr.length + i) % cols.length]),
+          backgroundColor: cssVar(cols[(cols.length - arr.length + i) % cols.length]), borderWidth: 2, pointRadius: 3, tension: 0.3, spanGaps: true })) },
+        options: { responsive: true, maintainAspectRatio: false, animation: { duration: 200 },
+          plugins: { legend: { labels: { color: text, boxWidth: 12, font: { size: 11 } } },
+            tooltip: { callbacks: { label: ctx => " " + ctx.dataset.label + ": " + ctx.parsed.y + "% uit de ketel" } } },
+          scales: { x: { title: { display: true, text: "daggemiddelde buitentemperatuur", color: text }, ticks: { color: text }, grid: { display: false } },
+                    y: { min: 0, max: 100, title: { display: true, text: "% warmte uit de ketel", color: text }, ticks: { color: text, callback: v => v + "%" }, grid: { color: grid } } } }
+      });
+    }
+    // tabel
+    const tb = document.querySelector("#swTable tbody"); tb.innerHTML = "";
+    res.slice().reverse().forEach(r => {
+      const tr = document.createElement("tr");
+      [r.lbl, r.best ? fmtT(r.best.X) : "te weinig kou", String(r.cold), ...r.perBin.map(x => x ? nf0.format(x.share * 100) + "% (" + x.n + ")" : "–")].forEach((v, i) => {
+        const td = document.createElement("td"); td.textContent = v; if (i) td.className = "num"; tr.appendChild(td); });
+      tb.appendChild(tr);
+    });
+    document.getElementById("swMethod").textContent = "Per dag is bekend hoeveel warmte de warmtepomp leverde en hoeveel gas de ketel gebruikte (Remeha, ketelwarmte = gas × " +
+      nf0.format(BOILER_EFF * 100) + "%). De warmtevraag per uur is evenredig genomen met het verschil tussen " + nf1.format(Tb) +
+      " °C (het punt waarboven je huis geen verwarming nodig heeft, berekend uit je eigen gegevens) en de buitentemperatuur van dat uur. Voor elke mogelijke grens is uitgerekend welk deel van de warmte de ketel zou leveren als die alle uren onder de grens verwarmt; het omslagpunt is de grens die per seizoen het best overeenkomt met wat Remeha mat, over de dagen met een daggemiddelde onder 8 °C. De Elga meet buiten met een eigen sensor, die een graad of twee kan afwijken van het weerstation.";
   }
 
   /* ---- Besparingen: teruglevering & warmtepomp ---- */
