@@ -452,6 +452,12 @@
     .ins-step { display: inline-flex; align-items: center; gap: 6px; }
     .ins-nav .tip { color: var(--muted); font-size: 0.8rem; }
     .ins-tbl > summary { margin-top: 6px; }
+    .sw-sel { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; align-items: center; }
+    .sw-sel .lbl { font-size: 0.8rem; color: var(--muted); margin-right: 2px; }
+    .chip { border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 999px; padding: 5px 11px; font: inherit; font-size: 0.82rem; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+    .chip i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: var(--border); }
+    .chip.on { border-color: var(--accent); font-weight: 700; }
+    .chip:not(.on) { opacity: 0.7; }
     .ins-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin: 8px 0 12px; }
     .ins-card { background: var(--bg); border-radius: 12px; padding: 10px 12px; }
     .ins-card .lbl { font-size: 0.74rem; color: var(--muted); font-weight: 600; }
@@ -1028,6 +1034,7 @@
     <div class="section-title">Omslagpunt: wanneer neemt de ketel het over?</div>
     <div class="hint" id="swHint">Onder welke buitentemperatuur de cv-ketel (gas) het verwarmen van de warmtepomp overneemt, per stookseizoen. Berekend uit de Remeha-dagwaarden en de buitentemperatuur per uur in Hengelo (Open-Meteo).</div>
     <div class="ins-summary" id="swSummary"></div>
+    <div class="sw-sel" id="swSel"></div>
     <div class="ins-chart"><canvas id="swChart"></canvas></div>
     <details class="cost-details ins-tbl"><summary>Tabel met cijfers per seizoen</summary>
     <div class="table-scroll">
@@ -2965,24 +2972,57 @@
     const card = (lbl, val, sub) => { const d = document.createElement("div"); d.className = "ins-card"; d.innerHTML = '<div class="lbl"></div><div class="val"></div><div class="sub"></div>'; d.children[0].textContent = lbl; d.children[1].textContent = val; d.children[2].textContent = sub || ""; sum.appendChild(d); };
     const fmtT = x => (x > 0 ? "+" : x < 0 ? "−" : "") + nf1.format(Math.abs(x)) + " °C";
     const withX = res.filter(r => r.best);
-    withX.slice(-3).forEach(r => card("Omslagpunt " + r.lbl, "≈ " + fmtT(r.best.X), r.cold + " koude dagen" + (r.cold < 30 ? " (nog weinig, voorlopig)" : "")));
+    // keuze in de grafiek: losse seizoenen, lopend seizoen, beste en slechtste (bewaard in deze browser)
+    const curSy = seasonOf(todayKey());
+    const fullRes = res.filter(r => r.best && r.sy !== curSy && r.cold >= 30);
+    let sel = LS.get("energie_swsel_v1", null);
+    if (!Array.isArray(sel)) sel = ["lopend", "beste", "slechtste"];
+    const isOn = id => sel.includes(id);
+    const shown = withX.filter(r => isOn(String(r.sy)) || (isOn("lopend") && r.sy === curSy));
+    (shown.length ? shown : withX.slice(-1)).slice(-4).forEach(r => card("Omslagpunt " + r.lbl, "≈ " + fmtT(r.best.X), r.cold + " koude dagen" + (r.cold < 30 ? " (nog weinig, voorlopig)" : "")));
     if (withX.length >= 2) {
       const xsF = withX.filter(r => r.cold >= 30).map(r => r.best.X);
       if (xsF.length >= 2) card("Vast punt?", Math.max(...xsF) - Math.min(...xsF) <= 1 ? "Vrijwel gelijk" : "Verschilt",
         "volledige seizoenen: " + xsF.map(fmtT).join(", ") + ". Bij grote vraag ('s ochtends) springt de ketel ook boven dit punt bij.");
     }
-    // grafiek: deel van de warmte uit de ketel per daggemiddelde temperatuur, per seizoen
+    // grafiek: deel van de warmte uit de ketel per daggemiddelde temperatuur
+    const palette = ["--elec", "--return", "--temp", "--muted", "--accent"];
+    const series = [];
+    const curR = res.find(r => r.sy === curSy);
+    if (curR && curR.perBin.some(Boolean)) series.push({ id: "lopend", lbl: "Lopend seizoen (" + curR.lbl + ")", color: "--accent", width: 3, data: curR.perBin.map(x => x ? Math.round(x.share * 100) : null), from: null });
+    if (fullRes.length >= 2) {
+      const env = pick => bins.map((_, i) => {
+        const c = fullRes.filter(r => r.perBin[i]).map(r => ({ v: r.perBin[i].share, lbl: r.lbl }));
+        if (!c.length) return null;
+        return c.reduce((a, x) => (pick(x.v, a.v) ? x : a));
+      });
+      const bst = env((x, y) => x < y), wst = env((x, y) => x > y);
+      series.push({ id: "beste", lbl: "Beste (minst gas)", color: "--elec", dash: [6, 4], data: bst.map(x => x ? Math.round(x.v * 100) : null), from: bst.map(x => x ? x.lbl : "") });
+      series.push({ id: "slechtste", lbl: "Slechtste (meest gas)", color: "--gas", dash: [6, 4], data: wst.map(x => x ? Math.round(x.v * 100) : null), from: wst.map(x => x ? x.lbl : "") });
+    }
+    res.filter(r => r.sy !== curSy && r.perBin.some(Boolean)).forEach((r, i) =>
+      series.push({ id: String(r.sy), lbl: r.lbl, color: palette[i % palette.length], width: 2, data: r.perBin.map(x => x ? Math.round(x.share * 100) : null), from: null, season: true }));
+    // keuzeknoppen
+    const selBox = document.getElementById("swSel"); selBox.innerHTML = '<span class="lbl">Toon:</span>';
+    series.forEach(sr => {
+      const c = document.createElement("button"); c.type = "button"; c.className = "chip" + (isOn(sr.id) ? " on" : "");
+      c.innerHTML = '<i></i><span></span>'; c.querySelector("i").style.background = isOn(sr.id) ? cssVar(sr.color) : ""; c.querySelector("span").textContent = sr.lbl;
+      c.title = sr.id === "beste" ? "Per temperatuur het seizoen waarin de ketel het minst bijsprong" : sr.id === "slechtste" ? "Per temperatuur het seizoen waarin de ketel het meest bijsprong" : "";
+      c.onclick = () => { sel = isOn(sr.id) ? sel.filter(x => x !== sr.id) : sel.concat(sr.id); LS.set("energie_swsel_v1", sel); renderSwitch(); };
+      selBox.appendChild(c);
+    });
     if (swChart) { swChart.destroy(); swChart = null; }
     if (window.Chart) {
-      const text = cssVar("--muted"), grid = cssVar("--border"), cols = ["--muted", "--gas", "--elec", "--return", "--temp"];
+      const text = cssVar("--muted"), grid = cssVar("--border");
+      const ds = series.filter(sr => isOn(sr.id));
       swChart = new Chart(document.getElementById("swChart"), {
         type: "line",
-        data: { labels: ["< 0 °C", "0–2 °C", "2–4 °C", "4–6 °C", "6–8 °C"], datasets: res.filter(r => r.perBin.some(Boolean)).slice(-4).map((r, i, arr) => ({
-          label: r.lbl, data: r.perBin.map(x => x ? Math.round(x.share * 100) : null), borderColor: cssVar(cols[(cols.length - arr.length + i) % cols.length]),
-          backgroundColor: cssVar(cols[(cols.length - arr.length + i) % cols.length]), borderWidth: 2, pointRadius: 3, tension: 0.3, spanGaps: true })) },
+        data: { labels: ["< 0 °C", "0–2 °C", "2–4 °C", "4–6 °C", "6–8 °C"], datasets: ds.map(sr => ({
+          label: sr.lbl, data: sr.data, borderColor: cssVar(sr.color), backgroundColor: cssVar(sr.color), borderWidth: sr.width || 2, borderDash: sr.dash || [],
+          pointRadius: 3, tension: 0.3, spanGaps: true, from: sr.from })) },
         options: { responsive: true, maintainAspectRatio: false, animation: { duration: 200 },
-          plugins: { legend: { labels: { color: text, boxWidth: 12, font: { size: 11 } } },
-            tooltip: { callbacks: { label: ctx => " " + ctx.dataset.label + ": " + ctx.parsed.y + "% uit de ketel" } } },
+          plugins: { legend: { display: false },
+            tooltip: { callbacks: { label: ctx => { const f = ctx.dataset.from && ctx.dataset.from[ctx.dataIndex]; return " " + ctx.dataset.label + ": " + ctx.parsed.y + "% uit de ketel" + (f ? " (" + f + ")" : ""); } } } },
           scales: { x: { title: { display: true, text: "daggemiddelde buitentemperatuur", color: text }, ticks: { color: text }, grid: { display: false } },
                     y: { min: 0, max: 100, title: { display: true, text: "% warmte uit de ketel", color: text }, ticks: { color: text, callback: v => v + "%" }, grid: { color: grid } } } }
       });

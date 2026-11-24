@@ -17,6 +17,8 @@
   Open-Meteo-hosts staan in de cloud-omgeving "Slimmemeter".
 - In het dashboard: Inzichten → "Omslagpunt" (`renderSwitch`, `#swBox`): zelfde methode per stookseizoen in de browser;
   uurtemperaturen Open-Meteo gecachet in `energie_uurtemp_v1`; omslagpunt alleen bij ≥10 dagen < 8 °C en ≥5 dagen < 3 °C.
+  Grafiekkeuze (`#swSel`, `energie_swsel_v1`): lopend seizoen, beste/slechtste (per temperatuurklasse min/max over volledige
+  seizoenen met omslagpunt, tooltip noemt het seizoen) en losse seizoenen; standaard lopend + beste + slechtste.
 
 ## Experiment nachtverlaging (lopend)
 
