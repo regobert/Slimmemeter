@@ -11,6 +11,10 @@
 - De gebruiker heeft gekozen: warmtepompdata mag openbaar in de repository (net als de meterdata).
 - Weergave: 📊 Inzichten → "Warmtepomp (Remeha)" (aandeel WP, COP, WP-stroom t.o.v. afname, ketelgas).
 - Warm water komt bij deze hybride van de cv-ketel (hotWater-velden zijn 0).
+- Omslagpunt WP → ketel (analyse 24 nov 2026, Open-Meteo-uurtemperatuur Hengelo + Remeha-dagdata mrt 2024–nov 2026):
+  ketel neemt het over onder ca. +1,5 à +2 °C buiten (beste fit 2024/25 +1,5, 2025/26 +2,0; nachturen: <2 °C gas in 56–75% van de uren,
+  2–3 °C 6%, >3 °C 0%). Daarnaast ketel bij grote vraag (ochtend-opwarmen) ook bij 2–6 °C. WP levert max ca. 80–97 kWh warmte/dag.
+  Open-Meteo-hosts staan in de cloud-omgeving "Slimmemeter".
 
 ## Experiment nachtverlaging (lopend)
 
