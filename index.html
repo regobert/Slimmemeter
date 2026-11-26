@@ -1102,6 +1102,12 @@
         <option value="sluim">Sluimerverbruik (W, vanaf okt 2026)</option>
       </select>
     </div>
+    <div class="row-actions" style="margin-top:6px;">
+      <div class="seg-group" id="cmpCut">
+        <button class="seg-btn" data-c="heel" type="button">Hele periodes</button>
+        <button class="seg-btn" data-c="datum" type="button">Tot dezelfde datum</button>
+      </div>
+    </div>
     <div class="hint" id="cmpInfo"></div>
     <div class="ins-chart" style="height:280px;"><canvas id="cmpChart"></canvas></div>
     <details class="cost-details" id="cmpTableWrap">
@@ -3365,6 +3371,7 @@
 
   // Perioden opbouwen: per jaar een lijst maanden; het lopende jaar/seizoen wordt afgekapt op de laatste gegevensdag
   // en de andere jaren op dezelfde maand + dag (eerlijke vergelijking).
+  let cmpCut = LS.get("energie_cmpcut_v1", "heel"); // "heel" = hele periodes, "datum" = alle periodes t/m dezelfde datum
   function buildPeriods() {
     const [first, last] = dataBounds();
     const ref = ALL_DATES.length ? ALL_DATES[ALL_DATES.length - 1] : last;
@@ -3384,14 +3391,15 @@
     if (cur && (cur.months[cur.months.length - 1] > refM || monthEnd(refM) > ref)) { cutPos = cur.months.indexOf(refM); cutDay = +ref.slice(8, 10); cur.ongoing = true; }
     periods.forEach(p => {
       p.segs = [];
+      const cutThis = cutPos !== null && (cmpCut === "datum" || p === cur);
       p.months.forEach((m, i) => {
-        if (cutPos !== null && i > cutPos) return;
+        if (cutThis && i > cutPos) return;
         let e = monthEnd(m);
-        if (cutPos !== null && i === cutPos) { const d = Math.min(cutDay, daysInMonth(m + "-01")); e = m + "-" + String(d).padStart(2, "0"); }
+        if (cutThis && i === cutPos) { const d = Math.min(cutDay, daysInMonth(m + "-01")); e = m + "-" + String(d).padStart(2, "0"); }
         p.segs.push([m + "-01", e]);
       });
       p.start = p.segs[0][0]; p.end = p.segs[p.segs.length - 1][1];
-      p.missing = p.months.filter((m, i) => (cutPos === null || i <= cutPos) && !monthTotals(m)).length;
+      p.missing = p.months.filter((m, i) => (!cutThis || i <= cutPos) && !monthTotals(m)).length;
     });
     // periode van deze soort die nog moet beginnen (bijv. de winter in november): verschijnt vanzelf zodra er gegevens zijn
     const next = cur ? null : periods.find(p => p.months[0] > refM);
@@ -3421,10 +3429,12 @@
     periods.forEach(p => { p.v = periodValues(p); p.val = p.v[metric]; p.wp = wpStart && p.start >= wpStart + "-01"; });
     const shown = periods.filter(p => p.val !== null && p.val !== undefined && isFinite(p.val));
     cmpPeriods = shown;
-    const full = shown.filter(p => !p.missing);
+    const full = shown.filter(p => !p.missing && !(p.ongoing && cmpCut === "heel")); // gemiddelde zonder onvolledige periodes
     const avg = full.length ? full.reduce((a, p) => a + p.val, 0) / full.length : null;
     const info = [];
-    if (cut) info.push("Lopende periode t/m " + fmtDate(ref) + "; de andere jaren zijn voor een eerlijke vergelijking afgekapt op dezelfde datum.");
+    if (cut) info.push(cmpCut === "datum"
+      ? "Alle periodes lopen t/m dezelfde datum als nu (" + fmtDate(ref).replace(/ \d{4}$/, "") + "), zodat je de lopende periode eerlijk kunt vergelijken."
+      : "De lopende periode (lichte staaf) loopt pas t/m " + fmtDate(ref) + " en telt niet mee in het gemiddelde. Kies 'Tot dezelfde datum' om eerlijk te vergelijken.");
     if (wpStart) info.push("Donkere staven = met warmtepomp (sinds " + MONTHS_SHORT[+wpStart.slice(5) - 1] + " " + wpStart.slice(0, 4) + ").");
     if (metric === "cost") info.push("≈ = geschat (maandtotalen of geen contract).");
     if (metric === "gasgd") info.push("Gas gedeeld door graaddagen maakt koude en zachte periodes vergelijkbaar.");
@@ -3438,12 +3448,12 @@
     if (window.Chart) {
       const text = cssVar("--muted"), grid = cssVar("--border"), col = cssVar(M.color), sc = M.scale || 1;
       const ds = [{ type: "bar", label: M.lbl + (M.unit ? " (" + M.unit + ")" : ""), data: shown.map(p => +(p.val * sc).toFixed(2)),
-        backgroundColor: shown.map(p => p.wp || !wpStart ? col : col + "88"), borderRadius: 3, yAxisID: "y", order: 2 }];
+        backgroundColor: shown.map(p => p.ongoing && cmpCut === "heel" ? col + "44" : (p.wp || !wpStart ? col : col + "88")), borderRadius: 3, yAxisID: "y", order: 2 }];
       if (avg !== null) ds.push({ type: "line", label: "Gemiddelde", data: shown.map(() => +(avg * sc).toFixed(2)), borderColor: text, borderDash: [3, 3], borderWidth: 1, pointRadius: 0, yAxisID: "y", order: 1 });
       if (!M.noTempLine && shown.some(p => p.v.temp !== null)) ds.push({ type: "line", label: "Temperatuur (°C)", data: shown.map(p => p.v.temp === null ? null : +p.v.temp.toFixed(1)),
         borderColor: cssVar("--temp"), backgroundColor: cssVar("--temp"), borderDash: [5, 4], borderWidth: 1.5, pointRadius: 2, tension: 0.35, cubicInterpolationMode: "monotone", spanGaps: true, yAxisID: "y1", order: 0 });
       cmpChart = new Chart(document.getElementById("cmpChart"), {
-        data: { labels: shown.map(p => p.label + (p.ongoing ? "*" : "")), datasets: ds },
+        data: { labels: shown.map(p => p.label + (p.ongoing ? (cmpCut === "heel" ? " (t/m " + fmtDate(p.end).replace(/ \d{4}$/, "") + ")" : "*") : "")), datasets: ds },
         options: { responsive: true, maintainAspectRatio: false, animation: { duration: 200 }, interaction: { mode: "index", intersect: false },
           plugins: { legend: { labels: { color: text, boxWidth: 12, font: { size: 11 } } },
             tooltip: { callbacks: { label: ctx => ctx.dataset.yAxisID === "y1" ? " " + nf1.format(ctx.parsed.y) + " °C"
@@ -3465,7 +3475,7 @@
     shown.slice().reverse().forEach((p, i, arr) => {
       const prev = arr[i + 1];
       const tr = document.createElement("tr"); if (p.missing) tr.className = "muted";
-      const cells = [p.label + (p.ongoing ? " (t/m " + fmtDate(p.end) + ")" : "") + (p.missing ? " (onvolledig)" : ""),
+      const cells = [p.label + (p.ongoing || cmpCut === "datum" && built.cut ? " (t/m " + fmtDate(p.end) + ")" : "") + (p.missing ? " (onvolledig)" : ""),
         M.fmt(p.val) + (metric === "cost" && p.v.est ? " ≈" : ""), prev ? diff(p.val, prev.val) : "–", avg !== null ? diff(p.val, avg) : "–",
         p.v.temp !== null ? nf1.format(p.v.temp) + " °C" : "–", ""];
       cells.forEach((v, j) => { const td = document.createElement("td"); td.textContent = v; if (j > 0 && j < 5) td.className = "num"; tr.appendChild(td); });
@@ -3490,6 +3500,10 @@
       renderCompare();
     });
     ["cmpMonth", "cmpSeason", "cmpMetric"].forEach(id => document.getElementById(id).onchange = renderCompare);
+    const cutBtns = document.querySelectorAll("#cmpCut .seg-btn");
+    const syncCut = () => cutBtns.forEach(b => b.classList.toggle("active", b.dataset.c === cmpCut));
+    cutBtns.forEach(b => b.onclick = () => { cmpCut = b.dataset.c; LS.set("energie_cmpcut_v1", cmpCut); syncCut(); renderCompare(); });
+    syncCut();
     document.getElementById("cmpChart").addEventListener("click", ev => {
       if (!cmpChart) return;
       const hit = cmpChart.getElementsAtEventForMode(ev, "index", { intersect: false }, false);
