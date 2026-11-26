@@ -3393,7 +3393,10 @@
       p.start = p.segs[0][0]; p.end = p.segs[p.segs.length - 1][1];
       p.missing = p.months.filter((m, i) => (cutPos === null || i <= cutPos) && !monthTotals(m)).length;
     });
-    return { periods: periods.filter(p => p.missing < p.segs.length && p.start <= ref), cut: cutPos !== null ? { pos: cutPos, day: cutDay } : null, ref };
+    // periode van deze soort die nog moet beginnen (bijv. de winter in november): verschijnt vanzelf zodra er gegevens zijn
+    const next = cur ? null : periods.find(p => p.months[0] > refM);
+    return { periods: periods.filter(p => p.missing < p.segs.length && p.start <= ref), cut: cutPos !== null ? { pos: cutPos, day: cutDay } : null, ref,
+             next: next ? { label: next.label, start: next.months[0] + "-01" } : null };
   }
 
   function periodValues(p) {
@@ -3414,7 +3417,7 @@
   function renderCompare() {
     clearCostCache();
     const metric = document.getElementById("cmpMetric").value, M = METRICS[metric];
-    const { periods, cut, ref } = buildPeriods();
+    const built = buildPeriods(), { periods, cut, ref } = built;
     periods.forEach(p => { p.v = periodValues(p); p.val = p.v[metric]; p.wp = wpStart && p.start >= wpStart + "-01"; });
     const shown = periods.filter(p => p.val !== null && p.val !== undefined && isFinite(p.val));
     cmpPeriods = shown;
@@ -3425,6 +3428,7 @@
     if (wpStart) info.push("Donkere staven = met warmtepomp (sinds " + MONTHS_SHORT[+wpStart.slice(5) - 1] + " " + wpStart.slice(0, 4) + ").");
     if (metric === "cost") info.push("≈ = geschat (maandtotalen of geen contract).");
     if (metric === "gasgd") info.push("Gas gedeeld door graaddagen maakt koude en zachte periodes vergelijkbaar.");
+    if (built.next && cmpKind !== "jaar") info.push((cmpKind === "seizoen" ? SEASONS[document.getElementById("cmpSeason").value].lbl + " " : "") + built.next.label + " begint op " + fmtDate(built.next.start) + " en verschijnt dan vanzelf.");
     if (!shown.length) info.push("Geen gegevens voor deze keuze" + ((metric === "wpshare" || metric === "cop") ? " (warmtepompgegevens zijn er vanaf maart 2024)." : "."));
     info.push("Dubbeltik op een staaf om die periode te openen.");
     document.getElementById("cmpInfo").textContent = info.join(" ");
@@ -3476,6 +3480,8 @@
     MONTHS_LONG.forEach((n, i) => { const o = document.createElement("option"); o.value = i + 1; o.textContent = n; ms.appendChild(o); });
     const refM = ALL_DATES.length ? +ALL_DATES[ALL_DATES.length - 1].slice(5, 7) : 1;
     ms.value = refM;
+    // standaard het seizoen waar we nu in zitten: okt–apr het stookseizoen, anders lente/zomer/herfst
+    document.getElementById("cmpSeason").value = refM >= 10 || refM <= 4 ? "stook" : refM <= 5 ? "lente" : refM <= 8 ? "zomer" : "herfst";
     document.querySelectorAll("#cmpKind .seg-btn").forEach(btn => btn.onclick = () => {
       cmpKind = btn.dataset.k;
       document.querySelectorAll("#cmpKind .seg-btn").forEach(b => b.classList.toggle("active", b === btn));

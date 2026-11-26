@@ -72,6 +72,8 @@
 - Inzichten: tabellen standaard ingeklapt (`details.ins-tbl`). Besparingsgrafiek zoomt in met een tik: jaren → maanden → dagen
   (`saveView`, navigatie `#saveNav`); de kaartjes erboven volgen de gekozen periode.
   Bladeren met ‹ › (`saveStep`), vegen op de grafiek of pijltjestoetsen: per jaar (maandweergave) of per maand (dagweergave).
+- Vergelijken: periodes worden automatisch uit de gegevens opgebouwd (ook de lopende periode, afgekapt op dezelfde datum).
+  Standaard seizoen = het seizoen van nu (okt–apr: stookseizoen); een gekozen periode die nog moet beginnen krijgt een melding.
 - 📊 Inzichten → "Besparingen": teruglevering = −credit − terugleverkosten per jaar; warmtepomp =
   WP-warmte ÷ (9,77 × 90% ketelrendement) × gasprijs − WP-stroom × gem. normaal/dal (alleen dagen met WP/ketel-splitsing).
 
